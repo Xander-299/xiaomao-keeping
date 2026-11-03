@@ -252,7 +252,12 @@ class TransactionRepository {
       occurredAt: occurredAt,
     );
     final existing = await (_db.select(_db.transactions)
-          ..where((t) => t.fingerprint.equals(fp) & t.deletedAt.isNull()))
+          ..where(
+            (t) =>
+                t.bookId.equals(bookId) &
+                t.fingerprint.equals(fp) &
+                t.deletedAt.isNull(),
+          ))
         .getSingleOrNull();
     if (existing != null) return ImportDuplicate(existing);
 

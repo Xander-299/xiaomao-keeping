@@ -125,6 +125,52 @@ void main() {
     expect(byNote['无关键词 · 神秘商品'], '其他');
   });
 
+  test('同一文件导入两个账本：各自首次入账，账本内二次导入仍 duplicate', () async {
+    final Book bookB = await BookRepository(db).create(name: '第二账本');
+    final String accountB = await ensureImportAccount(
+      AccountRepository(db),
+      bookB.id,
+    );
+    final categoryMapsB = await buildCategoryMaps(
+      CategoryRepository(db),
+      bookB.id,
+    );
+    final rows = [
+      _row(externalId: 'CROSS1'),
+      _row(externalId: 'CROSS2'),
+    ];
+
+    final rA1 = await importRows(
+      db,
+      bookId: book.id,
+      accountId: accountId,
+      categoryMaps: categoryMaps,
+      rows: rows,
+    );
+    expect(rA1.imported, 2);
+
+    // 相同指纹进入另一个账本：必须成功，不能被全局指纹误判为重复
+    final rB1 = await importRows(
+      db,
+      bookId: bookB.id,
+      accountId: accountB,
+      categoryMaps: categoryMapsB,
+      rows: rows,
+    );
+    expect(rB1.imported, 2);
+
+    // 同一个账本内二次导入仍然全部 duplicate
+    final rA2 = await importRows(
+      db,
+      bookId: book.id,
+      accountId: accountId,
+      categoryMaps: categoryMaps,
+      rows: rows,
+    );
+    expect(rA2.imported, 0);
+    expect(rA2.duplicates, 2);
+  });
+
   test('同一文件连导两次 → 第二次全部 duplicate，零新增', () async {
     final rows = [
       _row(externalId: 'C1'),
