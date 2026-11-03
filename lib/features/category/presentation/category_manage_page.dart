@@ -28,7 +28,7 @@ import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/data/providers/book_providers.dart';
 import 'package:yanxin/data/providers/category_providers.dart';
-import 'package:yanxin/data/repositories/category_repository.dart';
+import 'package:yanxin/features/shared/write_failure.dart';
 
 import '../application/category_actions.dart';
 import 'widgets/category_editor.dart';
@@ -463,8 +463,29 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
     await _actions.reorder(next.map((Category c) => c.id).toList());
   }
 
+  void _showWriteFailure(Object error, String action) {
+    if (mounted) showToonError(context, writeFailureMessage(error, action: action));
+  }
+
+  /// 分类写操作的统一护栏：捕获业务/存储异常并反馈；失败返回 false。
+  Future<bool> _runWrite(String action, Future<void> Function() write) async {
+    try {
+      await write();
+      return true;
+    } catch (e) {
+      _showWriteFailure(e, action);
+      return false;
+    }
+  }
+
   Future<void> _archive(Category category) async {
-    final int used = await _actions.countTransactions(category.id);
+    final int used;
+    try {
+      used = await _actions.countTransactions(category.id);
+    } catch (e) {
+      _showWriteFailure(e, '读取分类引用');
+      return;
+    }
     if (!mounted) return;
     final bool ok = await _confirm(
       title: '归档「${category.name}」？',
@@ -474,36 +495,63 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
       confirmLabel: '归档',
     );
     if (!ok) return;
-    await _actions.archive(category.id);
-    if (mounted) _toast('已归档「${category.name}」');
+    if (!await _runWrite('归档分类', () => _actions.archive(category.id))) {
+      return;
+    }
+    if (mounted) {
+      showToonSuccess(context, '已归档「${category.name}」');
+    }
   }
 
   Future<void> _restore(Category category) async {
-    await _actions.unarchive(category.id);
-    if (mounted) _toast('已恢复「${category.name}」');
+    if (!await _runWrite('恢复分类', () => _actions.unarchive(category.id))) {
+      return;
+    }
+    if (mounted) {
+      showToonSuccess(context, '已恢复「${category.name}」');
+    }
   }
 
   /// 删除：先看引用与子分类，决定「直接删 / 归档 / 迁移后删」。
   Future<void> _remove(Category category, List<Category> all) async {
-    final int used = await _actions.countTransactions(category.id);
+    final int used;
+    try {
+      used = await _actions.countTransactions(category.id);
+    } catch (e) {
+      _showWriteFailure(e, '读取分类引用');
+      return;
+    }
     final int kids = all
         .where((Category c) => c.parentId == category.id && c.deletedAt == null)
         .length;
     if (!mounted) return;
 
     if (used == 0 && kids == 0) {
-      final bool ok = await _confirm(
-        title: '删除「${category.name}」？',
-        message: '它下面没有账单，删除后不可恢复。',
-        confirmLabel: '删除',
-        danger: true,
-      );
-      if (!ok) return;
-      try {
-        await _actions.deleteIfUnused(category.id);
-        if (mounted) _toast('已删除「${category.name}」');
-      } on CategoryException catch (e) {
-        if (mounted) _toast(e.message);
+      if (!await _runWrite(
+        '删除分类',
+        () => _actions.deleteIfUnused(category.id),
+      )) {
+        return;
+      }
+      if (mounted) {
+        showToonUndo(
+          context,
+          '已删除「${category.name}」',
+          onUndo: () async {
+            final bool ok;
+            try {
+              ok = await _actions.undoDelete(category.id);
+            } catch (e) {
+              _showWriteFailure(e, '撤销删除');
+              return;
+            }
+            if (mounted) {
+              ok
+                  ? showToonSuccess(context, '已恢复「${category.name}」')
+                  : showToonError(context, '无法恢复：父分类已删除');
+            }
+          },
+        );
       }
       return;
     }
@@ -540,8 +588,12 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
     );
     if (choice == null || !mounted) return;
     if (choice == _RemoveChoice.archive) {
-      await _actions.archive(category.id);
-      if (mounted) _toast('已归档「${category.name}」');
+      if (!await _runWrite('归档分类', () => _actions.archive(category.id))) {
+        return;
+      }
+      if (mounted) {
+        showToonSuccess(context, '已归档「${category.name}」');
+      }
       return;
     }
     await _migrateAndDelete(category, all);
@@ -603,11 +655,18 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
       ),
     );
     if (target == null || !mounted) return;
+    final int moved;
     try {
-      final int moved = await _actions.migrateAndDelete(category.id, target.id);
-      if (mounted) _toast('已把 $moved 笔账单迁到「${target.name}」并删除原分类');
-    } on CategoryException catch (e) {
-      if (mounted) _toast(e.message);
+      moved = await _actions.migrateAndDelete(category.id, target.id);
+    } catch (e) {
+      _showWriteFailure(e, '迁移并删除分类');
+      return;
+    }
+    if (mounted) {
+      showToonSuccess(
+        context,
+        '已把 $moved 笔账单迁到「${target.name}」并删除原分类',
+      );
     }
   }
 

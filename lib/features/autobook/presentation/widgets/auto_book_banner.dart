@@ -94,21 +94,28 @@ class AutoBookBanner extends ConsumerWidget {
     AutoBookBatch batch,
   ) async {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final ToonPalette palette = context.toon;
     final bool ok = await _confirm(context, batch.count);
     if (!ok) return;
-    final int deleted = await ref
-        .read(autoBookNoticeProvider.notifier)
-        .undo(batch.batchId);
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            deleted > 0 ? '已撤销 $deleted 笔自动记账' : '这批已撤销或不复存在',
-          ),
-          duration: const Duration(seconds: 2),
-        ),
+    final int deleted;
+    try {
+      deleted = await ref
+          .read(autoBookNoticeProvider.notifier)
+          .undo(batch.batchId);
+    } catch (_) {
+      showToonErrorOnMessenger(
+        messenger: messenger,
+        palette: palette,
+        message: '撤销失败，已保留这一批，请重试',
       );
+      return;
+    }
+    showToonFeedbackOnMessenger(
+      messenger: messenger,
+      palette: palette,
+      message: deleted > 0 ? '已撤销 $deleted 笔自动记账' : '这批已撤销或不复存在',
+      kind: deleted > 0 ? ToonFeedbackKind.success : ToonFeedbackKind.info,
+    );
   }
 
   Future<bool> _confirm(BuildContext context, int count) async {

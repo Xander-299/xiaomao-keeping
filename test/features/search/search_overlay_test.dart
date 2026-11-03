@@ -396,21 +396,22 @@ void main() {
     await tester.drag(_inOverlay(find.text('-12.00')), const Offset(-200, 0));
     await tester.pumpAndSettle();
 
-    // 此刻动作区的「删除」是浮层内唯一一个（确认框还没弹）
+    // 此刻动作区的「删除」是浮层内唯一一个 → 点它直接删（不再弹确认框）
     await tester.tap(_inOverlay(find.text('删除')));
-    await tester.pumpAndSettle();
-    expect(find.text('删除这笔'), findsOneWidget);
-
-    // 确认框里的「删除」是 ToonButton（动作区那个是裸 Text，用 widgetWithText 区分）
-    await tester.tap(find.widgetWithText(ToonButton, '删除'));
     await tester.pumpAndSettle();
 
     expect(_inOverlay(find.text('没有匹配「打车」的账单')), findsOneWidget);
+    expect(find.textContaining('已删除「'), findsOneWidget);
 
     final book = await BookRepository(db).ensureDefaultBook();
     final rows = await TransactionRepository(db).listByBook(book.id);
     expect(rows.map((t) => t.note), isNot(contains('打车')));
     expect(rows, hasLength(2));
+
+    // 撤销：SnackBar 上的「撤销」→ 记录恢复回搜索结果
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(_inOverlay(find.text('-12.00')), findsOneWidget);
   });
 
   // ===== F7.7 D 批：账户名命中 / 时间区间 / 搜索历史 / 高亮 =====

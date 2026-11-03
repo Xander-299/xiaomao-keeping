@@ -12,19 +12,22 @@ import 'package:go_router/go_router.dart';
 import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/providers/data_epoch.dart';
 import 'package:yanxin/core/theme/toon.dart';
+import 'package:yanxin/core/utils/money.dart';
 import 'package:yanxin/data/providers/book_providers.dart';
 import 'package:yanxin/data/providers/category_providers.dart';
+import 'package:yanxin/data/repositories/transaction_repository.dart';
 import 'package:yanxin/features/autobook/presentation/widgets/auto_book_banner.dart';
 import 'package:yanxin/features/calendar/application/calendar_controller.dart';
 import 'package:yanxin/features/chat/presentation/widgets/chat_entry_card.dart';
+import 'package:yanxin/features/ledger/presentation/tx_restore_message.dart';
 import 'package:yanxin/features/reports/application/reports_controller.dart';
 import 'package:yanxin/features/search/presentation/search_overlay.dart';
+import 'package:yanxin/features/shared/write_failure.dart';
 import 'package:yanxin/features/stats/application/stats_controller.dart';
 
 import '../application/ledger_controller.dart';
 import 'widgets/budget_strip.dart';
 import 'widgets/month_hero.dart';
-import 'widgets/tx_delete_dialog.dart';
 import 'widgets/tx_group_list.dart';
 
 /// 首页竖向节奏（dp）—— 改首屏呼吸感只动这三个数，别在子组件里各写一份 margin。
@@ -126,8 +129,15 @@ class HomePage extends ConsumerWidget {
     WidgetRef ref,
     TxRow tx,
   ) async {
-    if (!await confirmDeleteTx(context)) return;
-    await ref.read(ledgerProvider.notifier).removeTx(tx.id);
+    try {
+      await ref.read(ledgerProvider.notifier).removeTx(tx.id);
+    } catch (e) {
+      // 数据库锁 / 磁盘 / Drift 等异常：不弹 Undo，让用户知道删除没成功。
+      if (context.mounted) {
+        showToonError(context, writeFailureMessage(e, action: '删除'));
+      }
+      return;
+    }
     ref.invalidate(yearDayIndexProvider);
     // 日历是同月数据的另一视图，保持一致
     unawaited(ref.read(calendarProvider.notifier).refresh());
@@ -135,6 +145,33 @@ class HomePage extends ConsumerWidget {
     unawaited(ref.read(statsProvider.notifier).refresh());
     // 资产页 watch 数据版本号，bump 即重算
     ref.read(dataEpochProvider.notifier).bump();
+    if (!context.mounted) return;
+    final String label = tx.note.isNotEmpty
+        ? tx.note
+        : '${centsToYuan(tx.amountCents, group: true)} 元';
+    showToonUndo(
+      context,
+      '已删除「$label」',
+      onUndo: () async {
+        final TxRestoreResult result;
+        try {
+          result = await ref.read(ledgerProvider.notifier).restoreTx(tx.id);
+        } catch (e) {
+          if (context.mounted) {
+            showToonError(context, writeFailureMessage(e, action: '撤销'));
+          }
+          return;
+        }
+        if (result.isRestored) {
+          ref.invalidate(yearDayIndexProvider);
+          unawaited(ref.read(calendarProvider.notifier).refresh());
+          unawaited(ref.read(statsProvider.notifier).refresh());
+          ref.read(dataEpochProvider.notifier).bump();
+        } else if (context.mounted) {
+          showToonError(context, txRestoreFailureMessage(result));
+        }
+      },
+    );
   }
 }
 

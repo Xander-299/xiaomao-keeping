@@ -21,11 +21,13 @@ import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/core/utils/date.dart';
 import 'package:yanxin/core/utils/money.dart';
 import 'package:yanxin/data/providers/category_providers.dart';
+import 'package:yanxin/data/repositories/transaction_repository.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
+import 'package:yanxin/features/ledger/presentation/tx_restore_message.dart';
 import 'package:yanxin/features/ledger/presentation/widgets/swipe_action_row.dart';
-import 'package:yanxin/features/ledger/presentation/widgets/tx_delete_dialog.dart';
 import 'package:yanxin/features/ledger/presentation/widgets/tx_group_list.dart';
 import 'package:yanxin/features/reports/application/reports_controller.dart';
+import 'package:yanxin/features/shared/write_failure.dart';
 import 'package:yanxin/features/stats/application/stats_controller.dart';
 
 import '../application/calendar_controller.dart';
@@ -132,8 +134,14 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
     WidgetRef ref,
     TxRow tx,
   ) async {
-    if (!await confirmDeleteTx(context)) return;
-    await ref.read(calendarProvider.notifier).removeTx(tx.id);
+    try {
+      await ref.read(calendarProvider.notifier).removeTx(tx.id);
+    } catch (e) {
+      if (context.mounted) {
+        showToonError(context, writeFailureMessage(e, action: '删除'));
+      }
+      return;
+    }
     ref.invalidate(yearDayIndexProvider);
     // 首页是同月数据的另一视图，保持一致
     unawaited(ref.read(ledgerProvider.notifier).refresh());
@@ -141,6 +149,33 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
     unawaited(ref.read(statsProvider.notifier).refresh());
     // 资产页 watch 数据版本号，bump 即重算
     ref.read(dataEpochProvider.notifier).bump();
+    if (!context.mounted) return;
+    final String label = tx.note.isNotEmpty
+        ? tx.note
+        : '${centsToYuan(tx.amountCents, group: true)} 元';
+    showToonUndo(
+      context,
+      '已删除「$label」',
+      onUndo: () async {
+        final TxRestoreResult result;
+        try {
+          result = await ref.read(calendarProvider.notifier).restoreTx(tx.id);
+        } catch (e) {
+          if (context.mounted) {
+            showToonError(context, writeFailureMessage(e, action: '撤销'));
+          }
+          return;
+        }
+        if (result.isRestored) {
+          ref.invalidate(yearDayIndexProvider);
+          unawaited(ref.read(ledgerProvider.notifier).refresh());
+          unawaited(ref.read(statsProvider.notifier).refresh());
+          ref.read(dataEpochProvider.notifier).bump();
+        } else if (context.mounted) {
+          showToonError(context, txRestoreFailureMessage(result));
+        }
+      },
+    );
   }
 
   String Function(String?) _categoryNameResolver(List<Category>? categories) {
