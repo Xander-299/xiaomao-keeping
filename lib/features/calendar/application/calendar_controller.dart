@@ -139,12 +139,30 @@ class CalendarController extends Notifier<CalendarState> {
   /// 防止并发重入（切日 + 翻月几乎同时触发时只保留最早的加载链）。
   bool _busy = false;
 
+  /// busy 期间收到的 refresh 请求：合并成一次，当前链条结束后补跑。
+  ///
+  /// 不删除 [_busy] 守卫（否则会并发跑两套 day/month 加载）；也不做无界队列，
+  /// 多次 pending 只记一个 bool。
+  bool _refreshQueued = false;
+
+  /// 选中日请求序号：每发起一次 [_loadDay] 自增。
+  ///
+  /// 快速切日时，较早请求可能较晚返回；只有「序号仍是最后一次 + selectedDate
+  /// 仍是发起时的日期」才允许写 state，过期结果直接丢弃（成功和失败都一样）。
+  int _dayRequestId = 0;
+
   /// provider 被释放（重建 / 换账本）后，迟到的异步结果不能再写 state。
   bool _disposed = false;
+
+  bool _isCurrentDayRequest(int requestId, DateTime date) =>
+      !_disposed &&
+      requestId == _dayRequestId &&
+      state.selectedDate == date;
 
   @override
   CalendarState build() {
     _disposed = false;
+    _refreshQueued = false;
     ref.onDispose(() => _disposed = true);
     final DateTime now = DateTime.now();
     // 首帧：网格 + 选中今天；两段数据都是 loading。
@@ -167,19 +185,29 @@ class CalendarController extends Notifier<CalendarState> {
 
   /// 一段：选中日账单。只查这一天（[startMs, endMs)）。
   Future<void> _loadDay() async {
+    final int requestId = ++_dayRequestId;
+    // 先同步捕获本次请求对应的日期，再 await；否则 await 期间切日会把
+    // 「新日期」写进旧请求的 loading/data。
+    final DateTime date = state.selectedDate;
+    final int startMs =
+        DateTime(date.year, date.month, date.day).millisecondsSinceEpoch;
+    final int endMs =
+        DateTime(date.year, date.month, date.day + 1).millisecondsSinceEpoch;
+
     final String? bookId = await _bookId();
-    if (bookId == null) return;
-    final CalendarState s = state;
-    final DateTime d = s.selectedDate;
-    final int startMs = DateTime(d.year, d.month, d.day).millisecondsSinceEpoch;
-    final int endMs = DateTime(d.year, d.month, d.day + 1).millisecondsSinceEpoch;
-    state = s.copyWith(day: const AsyncValue<List<TxRow>>.loading());
+    if (!_isCurrentDayRequest(requestId, date) || bookId == null) return;
+
+    state = state.copyWith(day: const AsyncValue<List<TxRow>>.loading());
     try {
       final List<TxRow> rows = await ref
           .read(transactionRepositoryProvider)
           .listByRange(bookId, startMs, endMs);
+      // 查询期间可能已经切到别的日期 —— 旧结果不能覆盖新日期。
+      if (!_isCurrentDayRequest(requestId, date)) return;
       state = state.copyWith(day: AsyncValue<List<TxRow>>.data(rows));
     } catch (e, st) {
+      // 过期请求的失败同样不能把当前日期的成功/loading 改成 error。
+      if (!_isCurrentDayRequest(requestId, date)) return;
       state = state.copyWith(day: AsyncValue<List<TxRow>>.error(e, st));
     }
   }
@@ -187,7 +215,7 @@ class CalendarController extends Notifier<CalendarState> {
   /// 二段：整月聚合（日标注 / 月结余 / 日均）。
   Future<void> _loadMonth() async {
     final String? bookId = await _bookId();
-    if (bookId == null) return;
+    if (_disposed || bookId == null) return;
     final CalendarState s = state;
     final int y = s.year;
     final int m = s.month;
@@ -195,18 +223,25 @@ class CalendarController extends Notifier<CalendarState> {
       final List<TxRow> rows = await ref
           .read(transactionRepositoryProvider)
           .listByMonth(bookId, y, m);
-      // 查询期间可能已经翻到别的月 —— 结果过期就丢掉
-      if (state.year != y || state.month != m) return;
+      // 查询期间可能已经翻到别的月 / provider 已释放 —— 结果过期就丢掉
+      if (_disposed || state.year != y || state.month != m) return;
       state = state.copyWith(monthAgg: AsyncValue<MonthAgg>.data(MonthAgg.of(rows, year: y, month: m)));
     } catch (e, st) {
-      if (state.year != y || state.month != m) return;
+      if (_disposed || state.year != y || state.month != m) return;
       state = state.copyWith(monthAgg: AsyncValue<MonthAgg>.error(e, st));
     }
   }
 
   /// 两段都重来（打开页面 / 记完一笔 / 删完一笔）：**先账单，后标注**。
+  ///
+  /// 如果已有 refresh 在跑，不丢弃本次请求，而是标记 pending；当前链条
+  /// 结束后合并补跑一次。dispose 后不再触发新的异步链。
   Future<void> refresh() async {
-    if (_busy) return;
+    if (_disposed) return;
+    if (_busy) {
+      _refreshQueued = true;
+      return;
+    }
     _busy = true;
     try {
       await _loadDay();
@@ -214,6 +249,12 @@ class CalendarController extends Notifier<CalendarState> {
       await _loadMonth();
     } finally {
       _busy = false;
+      if (_disposed) {
+        _refreshQueued = false;
+      } else if (_refreshQueued) {
+        _refreshQueued = false;
+        unawaited(refresh());
+      }
     }
   }
 
@@ -222,7 +263,12 @@ class CalendarController extends Notifier<CalendarState> {
     final CalendarState s = state;
     final DateTime next = DateTime(s.year, s.month, day);
     if (next == s.selectedDate) return;
-    state = s.copyWith(selectedDate: next);
+    // 立即把旧日期的数据切成 loading：避免新日期头 + 旧账单短暂错配；
+    // 之后的真实结果由 [_loadDay] 的请求序号校验决定是否落地。
+    state = s.copyWith(
+      selectedDate: next,
+      day: const AsyncValue<List<TxRow>>.loading(),
+    );
     unawaited(_loadDay());
   }
 
