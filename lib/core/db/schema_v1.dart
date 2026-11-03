@@ -16,6 +16,9 @@ const kSchemaV1Indexes = <String>[
   'CREATE INDEX IF NOT EXISTS idx_tx_dirty ON transactions(dirty)',
   // 指纹唯一：同一笔外部交易只能入一次账。仅约束未删除行，
   // 这样用户删掉一笔后可以重新导入同一笔，不会被永久锁死。
+  //
+  // ⚠️ 这是 v1 的历史 DDL，唯一范围是**全局**。schema v5 起由
+  // `schema_v5.dart` 替换成 `(book_id, fingerprint)`，见 Batch A / A1。
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_fingerprint '
       'ON transactions(fingerprint) '
       'WHERE fingerprint IS NOT NULL AND deleted_at IS NULL',

@@ -197,8 +197,12 @@ Future<ImportReport> importRows(
         final placeholders = List.filled(chunk.length, '?').join(',');
         final q = db.customSelect(
           'SELECT fingerprint FROM transactions '
-          'WHERE fingerprint IN ($placeholders) AND deleted_at IS NULL',
-          variables: [for (final fp in chunk) Variable.withString(fp)],
+          'WHERE book_id = ? AND fingerprint IN ($placeholders) '
+          'AND deleted_at IS NULL',
+          variables: <Variable<Object>>[
+            Variable.withString(bookId),
+            for (final fp in chunk) Variable.withString(fp),
+          ],
         );
         for (final r in await q.get()) {
           existing.add(r.read<String>('fingerprint'));
