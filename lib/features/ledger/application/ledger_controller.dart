@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/db/database.dart';
 import '../../../data/providers/book_providers.dart';
 import '../../../data/providers/database.dart';
+import '../../../data/repositories/transaction_repository.dart';
 import 'month_summary.dart';
 
 /// 首页状态快照。
@@ -115,5 +116,14 @@ class LedgerController extends AsyncNotifier<LedgerState> {
   Future<void> removeTx(String id) async {
     await ref.read(transactionRepositoryProvider).softDelete(id);
     await refresh();
+  }
+
+  /// 撤销软删：返回可识别的结果；只有恢复成功才刷新列表。
+  Future<TxRestoreResult> restoreTx(String id) async {
+    final TxRestoreResult result = await ref
+        .read(transactionRepositoryProvider)
+        .restoreTx(id);
+    if (result.isRestored) await refresh();
+    return result;
   }
 }
