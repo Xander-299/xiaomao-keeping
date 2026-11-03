@@ -11,6 +11,9 @@ import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/data/providers/book_providers.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/data/repositories/account_repository.dart';
+import 'package:yanxin/data/repositories/app_meta_repository.dart';
+import 'package:yanxin/data/repositories/book_repository.dart';
+import 'package:yanxin/data/repositories/category_repository.dart';
 import 'package:yanxin/data/repositories/transaction_repository.dart';
 import 'package:yanxin/features/autobook/application/auto_book_controller.dart';
 import 'package:yanxin/features/autobook/application/auto_book_notice.dart';
@@ -125,6 +128,18 @@ class FakeAutoBookBridge extends AutoBookBridge {
   Future<void> openAppNotificationSettings() async {}
 }
 
+/// 批量撤销在「软删完成、批次记录摘除」这一步失败，用来验证事务回滚。
+class _ThrowingForgetStore extends AutoBookBatchStore {
+  // 父类字段名是私有的 `_meta`，跨库不能写成 super 参数；这里保留显式转发。
+  // ignore: use_super_parameters
+  _ThrowingForgetStore(AppMetaRepository meta) : super(meta);
+
+  @override
+  Future<void> forget(String batchId) async {
+    throw StateError('forget failed for $batchId');
+  }
+}
+
 void main() {
   late AppDatabase db;
   late FakeAutoBookBridge bridge;
@@ -157,6 +172,38 @@ void main() {
 
   AutoBookController controller() =>
       container.read(autoBookControllerProvider);
+
+  Future<String> createTx({String? book, String note = '撤销测试'}) async {
+    final String targetBook = book ?? bookId;
+    final Account account =
+        (await AccountRepository(db).listByBook(targetBook)).first;
+    final Category category =
+        (await CategoryRepository(db).listByBook(targetBook, kind: 'expense'))
+            .first;
+    final TxRow tx = await TransactionRepository(db).create(
+      bookId: targetBook,
+      accountId: account.id,
+      categoryId: category.id,
+      type: 'expense',
+      amountCents: 1200,
+      occurredAt: _t,
+      note: note,
+    );
+    return tx.id;
+  }
+
+  AutoBookBatch batchOf(
+    String batchId,
+    List<String> txIds, {
+    String? book,
+  }) => AutoBookBatch(
+    batchId: batchId,
+    txIds: txIds,
+    count: txIds.length,
+    totalCents: 1200 * txIds.length,
+    atMs: _t,
+    bookId: book ?? bookId,
+  );
 
   test('首次 drain：2 笔入账 + 记批次 + 发回执通知', () async {
     bridge.queue = <String>[
@@ -268,6 +315,7 @@ void main() {
         await container.read(autoBookNoticeProvider.notifier).undo(batchId);
 
     expect(deleted, 2);
+    expect(r.batch!.bookId, bookId); // Batch A / A3：批次记录带账本
     expect(await visibleTxs(), isEmpty); // 软删（deleted_at 非空 → 列表里消失）
     expect(container.read(autoBookNoticeProvider), isNull); // 提示条收起
     expect(await container.read(autoBookBatchStoreProvider).latest(), isNull);
@@ -277,6 +325,89 @@ void main() {
       await container.read(autoBookNoticeProvider.notifier).undo(batchId),
       0,
     );
+  });
+
+  test('批量撤销中途失败 → 流水与批次记录一起回滚', () async {
+    final String id1 = await createTx(note: '回滚1');
+    final String id2 = await createTx(note: '回滚2');
+    final AutoBookBatch batch = batchOf('rollback', <String>[id1, id2]);
+
+    final _ThrowingForgetStore failingStore =
+        _ThrowingForgetStore(AppMetaRepository(db));
+    final ProviderContainer failing = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWithValue(db),
+        autoBookBatchStoreProvider.overrideWithValue(failingStore),
+      ],
+    );
+    addTearDown(failing.dispose);
+    await failingStore.remember(batch);
+
+    await expectLater(
+      failing.read(autoBookNoticeProvider.notifier).undo(batch.batchId),
+      throwsA(isA<StateError>()),
+    );
+
+    // 软删被回滚：两笔仍然活跃
+    expect(
+      (await TransactionRepository(db).listByBook(bookId)).length,
+      2,
+    );
+    // 批次记录也还在，用户可重试
+    expect(await failingStore.byId(batch.batchId), isNotNull);
+  });
+
+  test('撤销一个批次不影响其他批次或其他账本', () async {
+    final String idA1 = await createTx(note: 'A1');
+    final String idA2 = await createTx(note: 'A2');
+    final Book bookB = await BookRepository(db).create(name: '第二账本');
+    final String idB = await createTx(book: bookB.id, note: 'B1');
+
+    final AutoBookBatchStore store =
+        container.read(autoBookBatchStoreProvider);
+    final AutoBookBatch batchA =
+        batchOf('batch-a', <String>[idA1, idA2]);
+    final AutoBookBatch batchB =
+        batchOf('batch-b', <String>[idB], book: bookB.id);
+    await store.remember(batchA);
+    await store.remember(batchB);
+
+    final int deleted =
+        await container.read(autoBookNoticeProvider.notifier).undo('batch-a');
+
+    expect(deleted, 2);
+    expect(await TransactionRepository(db).listByBook(bookId), isEmpty);
+    // 另一个账本的流水、批次都不受影响
+    expect(
+      (await TransactionRepository(db).listByBook(bookB.id)).length,
+      1,
+    );
+    expect(await store.byId('batch-b'), isNotNull);
+  });
+
+  test('批次包含其他账本流水 → 拒绝撤销并整体回滚', () async {
+    final String idA = await createTx(note: 'A');
+    final Book bookB = await BookRepository(db).create(name: '第二账本');
+    final String idB = await createTx(book: bookB.id, note: 'B');
+
+    final AutoBookBatchStore store =
+        container.read(autoBookBatchStoreProvider);
+    final AutoBookBatch mixed =
+        batchOf('mixed', <String>[idA, idB], book: bookId);
+    await store.remember(mixed);
+
+    await expectLater(
+      container.read(autoBookNoticeProvider.notifier).undo('mixed'),
+      throwsA(isA<StateError>()),
+    );
+
+    // 两边都保持活跃；批次记录保留，避免静默丢账
+    expect((await TransactionRepository(db).listByBook(bookId)).length, 1);
+    expect(
+      (await TransactionRepository(db).listByBook(bookB.id)).length,
+      1,
+    );
+    expect(await store.byId('mixed'), isNotNull);
   });
 
   test('冷启动撤销：命令文件里的 batchId 在下次 drain 时执行', () async {
@@ -291,6 +422,29 @@ void main() {
     expect(after.undone, 1);
     expect(await visibleTxs(), isEmpty);
     expect(bridge.cancelCount, greaterThanOrEqualTo(1));
+  });
+
+  test('旧批次 JSON 没有 bookId：按流水反推账本后仍能撤销', () async {
+    final String id = await createTx(note: '旧批次');
+    final AutoBookBatchStore store =
+        container.read(autoBookBatchStoreProvider);
+    // 不带 bookId，模拟 A3 之前落库的批次 JSON
+    await store.remember(
+      AutoBookBatch(
+        batchId: 'legacy',
+        txIds: <String>[id],
+        count: 1,
+        totalCents: 1200,
+        atMs: _t,
+      ),
+    );
+
+    expect(
+      await container.read(autoBookNoticeProvider.notifier).undo('legacy'),
+      1,
+    );
+    expect(await visibleTxs(), isEmpty);
+    expect(await store.byId('legacy'), isNull);
   });
 
   test('批次记录最多留 3 批，最旧的被裁撤', () async {

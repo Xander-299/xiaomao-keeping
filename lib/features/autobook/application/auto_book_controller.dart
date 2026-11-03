@@ -253,6 +253,7 @@ class AutoBookController {
       count: imported,
       totalCents: amountCents,
       atMs: DateTime.now().millisecondsSinceEpoch,
+      bookId: bookId,
     );
     await store.remember(batch);
     _ref.read(autoBookNoticeProvider.notifier).show(batch);

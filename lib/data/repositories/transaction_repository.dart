@@ -246,6 +246,61 @@ class TransactionRepository {
         );
   }
 
+  /// 由一批流水 id 推导其所属账本。
+  ///
+  /// 只用于兼容**旧版自动记账批次**（JSON 里没有 bookId）。要求：
+  /// - 所有 id 都能查到行；
+  /// - 所有行属于同一个 bookId。
+  /// 任一不满足返回 null，调用方应拒绝撤销，避免跨账本误删。
+  Future<String?> bookIdOfTransactions(List<String> ids) async {
+    final List<String> unique = ids.toSet().toList();
+    if (unique.isEmpty) return null;
+    final List<TxRow> rows = await (_db.select(_db.transactions)
+          ..where((t) => t.id.isIn(unique)))
+        .get();
+    if (rows.length != unique.length) return null;
+    final Set<String> books = rows.map((TxRow t) => t.bookId).toSet();
+    return books.length == 1 ? books.first : null;
+  }
+
+  /// 批量软删一批流水（A3）。
+  ///
+  /// **调用方必须把它和批次记录更新放在同一个 `db.transaction` 里**；
+  /// 本方法不再自行开事务，避免嵌套事务语义不确定。
+  ///
+  /// 先校验所有 id 都存在且属于 [bookId]；任一行缺失或跨账本直接抛
+  /// [StateError]，由外层事务整体回滚。只更新 `deleted_at IS NULL` 的行，
+  /// 已软删的行计入 0（重复撤销幂等）。
+  Future<int> softDeleteBatch({
+    required List<String> ids,
+    required String bookId,
+  }) async {
+    final List<String> unique = ids.toSet().toList();
+    if (unique.isEmpty) return 0;
+    final List<TxRow> rows = await (_db.select(_db.transactions)
+          ..where((t) => t.id.isIn(unique)))
+        .get();
+    if (rows.length != unique.length ||
+        rows.any((TxRow t) => t.bookId != bookId)) {
+      throw StateError('批次流水不存在或不属于账本 $bookId，拒绝批量撤销');
+    }
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    return (_db.update(_db.transactions)
+          ..where(
+            (t) =>
+                t.id.isIn(unique) &
+                t.bookId.equals(bookId) &
+                t.deletedAt.isNull(),
+          ))
+        .write(
+          TransactionsCompanion(
+            deletedAt: Value(now),
+            updatedAt: Value(now),
+            dirty: const Value(1),
+          ),
+        );
+  }
+
   /// 恢复一笔软删的流水（写回 deleted_at = null）。
   ///
   /// Batch A / A2：恢复前在**同一事务**内校验引用完整性，任一不满足都返回

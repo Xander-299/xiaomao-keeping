@@ -35,21 +35,38 @@ class AutoBookNoticeNotifier extends Notifier<AutoBookBatch?> {
   ///
   /// [batchId] 为空时撤销**当前提示条上的那批**。返回真正软删的条数
   /// （0 = 该批已撤销过 / 不复存在，调用方据此给出明确提示，不要假装成功）。
+  ///
+  /// A3：软删与批次记录摘除在**同一个 DB 事务**内完成；任一步失败整体回滚，
+  /// 不会留下「流水删了一半、批次还在/不在」的中间态。批次必须属于同一账本；
+  /// 旧批次没有 bookId 时由流水反推，推不出就拒绝撤销。
   Future<int> undo([String? batchId]) async {
     final String? id = batchId ?? state?.batchId;
     if (id == null) return 0;
 
     final AutoBookBatchStore store = ref.read(autoBookBatchStoreProvider);
-    final AutoBookBatch? batch = await store.byId(id) ?? state;
+    final AutoBookBatch? stored = await store.byId(id);
+    // 不要用 `?? state`：id 对应的批次已被摘除时，state 可能是**另一批**，
+    // 那样会误删当前提示条上的流水。
+    final AutoBookBatch? batch =
+        stored ?? (state?.batchId == id ? state : null);
     if (batch == null) return 0;
 
     final repo = ref.read(transactionRepositoryProvider);
-    var deleted = 0;
-    for (final String txId in batch.txIds) {
-      deleted += await repo.softDelete(txId);
-    }
-    // 无论删到几笔都摘除记录：同一批不能被撤第二次
-    await store.forget(id);
+    final String? scopeBookId =
+        batch.bookId ?? await repo.bookIdOfTransactions(batch.txIds);
+    if (scopeBookId == null) return 0;
+
+    final int deleted = await ref.read(appDatabaseProvider).transaction<int>(
+      () async {
+        final int n = await repo.softDeleteBatch(
+          ids: batch.txIds,
+          bookId: scopeBookId,
+        );
+        // 与软删同一事务：批次记录写失败 → 上面的 deleted 也回滚。
+        await store.forget(id);
+        return n;
+      },
+    );
     if (state?.batchId == id) state = null;
     refreshAfterAutoBookWrite(ref);
     return deleted;
