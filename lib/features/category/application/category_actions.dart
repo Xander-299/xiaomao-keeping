@@ -84,6 +84,13 @@ class CategoryActions {
     _refresh();
   }
 
+  /// 撤销删除（无引用删除路径）。恢复后父分类已不存在时自动升为一级。
+  Future<bool> undoDelete(String id) async {
+    final bool ok = await _repo.undelete(id);
+    if (ok) _refresh();
+    return ok;
+  }
+
   /// 把账单迁到 [toId] 后删除 [fromId]（含子分类）。返回迁移笔数。
   Future<int> migrateAndDelete(String fromId, String toId) async {
     final int moved = await _repo.migrateAndDelete(fromId, toId);

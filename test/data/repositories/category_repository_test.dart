@@ -216,6 +216,43 @@ void main() {
     });
   });
 
+  group('无引用分类撤销删除', () {
+    test('undelete 恢复同一条记录，id / 名称 / 父分类不变', () async {
+      final Category parent = await mk('撤销父分类');
+      final Category child = await mk('撤销子分类', parentId: parent.id);
+
+      await repo.deleteIfUnused(child.id);
+      expect(await repo.getById(child.id), isNull);
+      expect(await repo.undelete(child.id), isTrue);
+
+      final Category? restored = await repo.getById(child.id);
+      expect(restored, isNotNull);
+      expect(restored!.id, child.id);
+      expect(restored.name, '撤销子分类');
+      expect(restored.parentId, parent.id);
+    });
+
+    test('父分类也被删除时拒绝部分恢复，不产生孤儿节点', () async {
+      final Category parent = await mk('会被删的父分类');
+      final Category child = await mk('父删除后的子分类', parentId: parent.id);
+
+      await repo.deleteIfUnused(child.id);
+      await repo.deleteIfUnused(parent.id);
+      expect(await repo.undelete(child.id), isFalse);
+      final Category? deleted =
+          await repo.getById(child.id, includeDeleted: true);
+      expect(deleted!.deletedAt, isNotNull);
+    });
+
+    test('删除期间出现同名活跃分类时拒绝恢复，避免重复分类', () async {
+      final Category original = await mk('同名撤销');
+      await repo.deleteIfUnused(original.id);
+      await mk('同名撤销');
+
+      expect(await repo.undelete(original.id), isFalse);
+    });
+  });
+
   group('两级结构', () {
     test('可以建二级分类，parentId 指向一级', () async {
       final Category food = (await repo.listByBook(bookId, kind: 'expense'))

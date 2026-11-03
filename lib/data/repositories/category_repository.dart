@@ -384,7 +384,7 @@ class CategoryRepository {
   ///
   /// [withChildren] = true 时把子分类一起归档（避免父级归档后子级还能选）。
   Future<int> archive(String id, {bool withChildren = true}) async {
-    final Category? category = await getById(id);
+    final Category? category = await getById(id, includeDeleted: true);
     if (category == null) throw const CategoryException('分类不存在或已删除');
     final int now = DateTime.now().millisecondsSinceEpoch;
     int changed = 0;
@@ -465,6 +465,45 @@ class CategoryRepository {
             dirty: const Value(1),
           ),
         );
+  }
+
+  /// 恢复一笔软删的分类（写回 deleted_at = null）。返回是否成功。
+  ///
+  /// 父分类在删除期间也被删掉时返回 false，不做“升为一级”的部分恢复；
+  /// 只有完整原层级可恢复时才执行。
+  Future<bool> undelete(String id) async {
+    final Category? category = await getById(id, includeDeleted: true);
+    if (category == null || category.deletedAt == null) return false;
+    try {
+      await _assertNameFree(
+        bookId: category.bookId,
+        kind: category.kind,
+        parentId: category.parentId,
+        name: category.name,
+        excludeId: category.id,
+      );
+    } on CategoryException {
+      return false;
+    }
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    final String? originalParentId = category.parentId;
+    final String? parentId = originalParentId;
+    if (originalParentId != null) {
+      final Category? parent =
+          await (_db.select(_db.categories)
+                ..where((t) => t.id.equals(originalParentId)))
+              .getSingleOrNull();
+      if (parent == null || parent.deletedAt != null) return false;
+    }
+    await (_db.update(_db.categories)..where((t) => t.id.equals(id))).write(
+      CategoriesCompanion(
+        deletedAt: const Value(null),
+        parentId: Value(parentId),
+        updatedAt: Value(now),
+        dirty: const Value(1),
+      ),
+    );
+    return true;
   }
 
   /// 把 [fromId]（含其子分类）下的账单迁到 [toId]，然后删掉原分类。
