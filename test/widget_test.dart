@@ -90,15 +90,18 @@ void main() {
     await tester.drag(find.text(cat.name), const Offset(-200, 0));
     await tester.pumpAndSettle();
 
-    // 动作区的「删除」此刻唯一（确认框还没弹）→ 直接点它
+    // 动作区的「删除」此刻唯一 → 点它直接删（不再弹确认框），出 SnackBar
     await tester.tap(find.text('删除'));
-    await tester.pumpAndSettle();
-    // 确认框里的「删除」是 ToonButton（动作区那个是裸 Text，用 widgetWithText 区分）
-    await tester.tap(find.widgetWithText(ToonButton, '删除'));
     await tester.pumpAndSettle();
     await pumpUntil(tester, find.textContaining('还没有记账'));
 
     expect(find.textContaining('还没有记账'), findsOneWidget);
+    expect(find.textContaining('已删除「'), findsOneWidget);
+
+    // 撤销：SnackBar 上的「撤销」→ 记录恢复回列表
+    await tester.tap(find.text('撤销'));
+    await pumpUntil(tester, find.text(cat.name));
+    expect(find.text(cat.name), findsOneWidget);
   });
 
   testWidgets('hero 翻月：上月有账则能看到上月流水', (WidgetTester tester) async {
