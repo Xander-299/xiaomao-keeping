@@ -222,3 +222,29 @@
    - **导入规则只到一级**：`category_rules.dart` 的「地铁 / 公交 / 单车」仍落到「交通」，
      没落到对应二级（改会动既有导入结果，需确认）。
 
+10. 【**2026-11-03 · A+B+C 最终复审遗留**】只记录，不在本轮 A/B/C 提交里修（避免扩大范围）。
+    - **P2 · 分类编辑 update 成功后 setParent 失败可能造成部分更新**：
+      `CategoryRepository.update` 先写分类主字段，再单独写 `parent_id`；第二步抛错时第一步已提交，
+      调用方看到「保存失败」但库里已部分生效。建议把两步放进同一事务，或在 `setParent` 失败时回滚主字段；
+      补一个「主字段更新成功 + setParent 抛错」的仓储测试，断言整次更新不落地。
+    - **P3 · 导入 fingerprint 并发竞争**：
+      `BillImporter.importRows` 先批量 `SELECT fingerprint` 再逐行插入；两个导入并发时都可能通过预查，
+      最终由 `(book_id, fingerprint)` 唯一索引兜底。失败行会被计入 error 而不是 duplicate，
+      用户看到「导入失败」而不是「重复跳过」。建议把预查 + 插入收进单事务，或在唯一冲突时回查并归类为 duplicate。
+    - **P3 · Ledger / Search 删除未检查 affected rows**：
+      `TransactionRepository.softDelete` 返回受影响行数，但首页 / 搜索的删除链路只 `await`、不校验返回值；
+      行已被其他入口删掉时仍会弹「已删除」并展示 Undo。建议透出返回值，0 行时提示「这笔已不存在」并刷新，不展示 Undo。
+    - **P3 · 自动记账后台撤销错误缺少 diagnostics / last-run error**：
+      `AutoBookNoticeNotifier.undo` 失败时只回滚事务，没有写 `autobook_last_run` 的 error 字段；
+      通知栏冷启动撤销失败后，`/autobook` 诊断块看不到原因。建议把 undo 失败（batchId + 错误摘要）写入 last-run，
+      并在诊断块展示。
+    - **P3 · 分类 `undelete()` 的校验与写入不在同一事务（复审新发现）**：
+      `CategoryRepository.undelete` 依次做「读原记录 → `_assertNameFree` → 查父分类 → UPDATE」，
+      全程没有 `_db.transaction`；校验通过后、UPDATE 之前若并发插入同名活跃分类或删掉父分类，
+      仍会写出一个不该恢复的节点。建议整段包进 `_db.transaction`，并在事务内重做校验。
+    - **P3 · 日历请求有效性判定不含 bookId（复审新发现）**：
+      `_isCurrentDayRequest` 只比对 `_disposed` / `_dayRequestId` / `selectedDate`，`_loadMonth` 只比对年月；
+      而 `CalendarController.build()` 不 watch `activeBookIdProvider`，`ActiveBookIdController.select()`
+      也不 invalidate `calendarProvider`。账本切换时在途请求不会被判定为过期，可能把旧账本结果写进新账本视图。
+      建议在请求里捕获 bookId 并纳入有效性判定（或在切换时 invalidate 控制器）。
+

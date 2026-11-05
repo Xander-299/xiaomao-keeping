@@ -84,7 +84,7 @@ class CategoryActions {
     _refresh();
   }
 
-  /// 撤销删除（无引用删除路径）。恢复后父分类已不存在时自动升为一级。
+  /// 撤销删除（无引用删除路径）。父分类已不存在时拒绝恢复并返回 false。
   Future<bool> undoDelete(String id) async {
     final bool ok = await _repo.undelete(id);
     if (ok) _refresh();
