@@ -53,6 +53,9 @@ class CategoryActions {
   }
 
   /// 编辑（名称 / 图标 / 颜色 / 父级）。
+  ///
+  /// 主字段与父级由仓储在**同一事务**内写入，任一步失败整笔回滚，
+  /// 不会出现「保存失败但名称已改」的半更新。
   Future<void> update(
     String id, {
     String? name,
@@ -61,10 +64,14 @@ class CategoryActions {
     String? parentId,
     bool changeParent = false,
   }) async {
-    await _repo.update(id, name: name, icon: icon, color: color);
-    if (changeParent) {
-      await _repo.setParent(id, parentId);
-    }
+    await _repo.update(
+      id,
+      name: name,
+      icon: icon,
+      color: color,
+      parentId: parentId,
+      changeParent: changeParent,
+    );
     _refresh();
   }
 

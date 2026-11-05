@@ -439,4 +439,94 @@ void main() {
       expect(kids.single.parentId, parent.id);
     });
   });
+
+  // P2-1：分类编辑必须原子 —— 主字段与父级同一事务，父级失败整笔回滚。
+  group('分类编辑原子性', () {
+    test('父级写入触发数据库错误：主字段更新一起回滚', () async {
+      final Category parent = await mk('原子-父分类');
+      final Category target = await mk(
+        '原子-待编辑',
+        icon: 'old-icon',
+        color: '#111111',
+      );
+      final Category before = (await repo.getById(target.id))!;
+
+      // 真实数据库层故障注入：只拦截「把 parent_id 改成非空」的 UPDATE。
+      // 主字段那段不写 parent_id，所以它先执行成功；第二段才被 ABORT。
+      await db.customStatement(
+        'CREATE TRIGGER trg_block_parent_move '
+        'BEFORE UPDATE OF parent_id ON categories '
+        "WHEN NEW.id = '${target.id}' AND NEW.parent_id IS NOT NULL "
+        "BEGIN SELECT RAISE(ABORT, 'injected parent failure'); END;",
+      );
+      addTearDown(
+        () => db.customStatement('DROP TRIGGER IF EXISTS trg_block_parent_move'),
+      );
+
+      Object? thrown;
+      try {
+        await repo.update(
+          target.id,
+          name: '原子-改名后',
+          icon: 'new-icon',
+          color: '#222222',
+          parentId: parent.id,
+          changeParent: true,
+        );
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown, isNotNull, reason: '父级写入失败必须把异常抛给调用方');
+
+      final Category after = (await repo.getById(target.id))!;
+      expect(after.name, before.name, reason: '名称必须回滚');
+      expect(after.icon, before.icon, reason: '图标必须回滚');
+      expect(after.color, before.color, reason: '颜色必须回滚');
+      expect(after.parentId, isNull, reason: '父级必须保持原样');
+      expect(after.sortOrder, before.sortOrder, reason: '排序必须回滚');
+      expect(after.updatedAt, before.updatedAt, reason: 'updatedAt 必须回滚');
+      expect(after.dirty, before.dirty);
+    });
+
+    test('无故障时主字段与父级一起生效', () async {
+      final Category parent = await mk('原子-父分类2');
+      final Category target = await mk('原子-待编辑2');
+
+      final Category updated = await repo.update(
+        target.id,
+        name: '原子-改名成功',
+        icon: 'icon-2',
+        color: '#333333',
+        parentId: parent.id,
+        changeParent: true,
+      );
+
+      expect(updated.name, '原子-改名成功');
+      expect(updated.icon, 'icon-2');
+      expect(updated.color, '#333333');
+      expect(updated.parentId, parent.id);
+
+      final Category fresh = (await repo.getById(target.id))!;
+      expect(fresh.parentId, parent.id);
+      expect(fresh.name, '原子-改名成功');
+    });
+
+    test('setParent 走原子更新后仍保留原有业务校验', () async {
+      final Category food = await mk('原子-餐饮');
+      await expectLater(
+        repo.setParent(food.id, food.id),
+        throwsA(isA<CategoryException>()),
+      );
+
+      final Category child = await mk('原子-早餐', parentId: food.id);
+      final Category other = await mk('原子-交通');
+      // 把「有父级」的分类再挂到二级分类下 → 会出现三级，必须拒绝。
+      await expectLater(
+        repo.setParent(other.id, child.id),
+        throwsA(isA<CategoryException>()),
+      );
+      final Category otherFresh = (await repo.getById(other.id))!;
+      expect(otherFresh.parentId, isNull);
+    });
+  });
 }

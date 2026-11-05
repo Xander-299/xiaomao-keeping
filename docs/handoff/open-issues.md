@@ -223,10 +223,16 @@
      没落到对应二级（改会动既有导入结果，需确认）。
 
 10. 【**2026-11-03 · A+B+C 最终复审遗留**】只记录，不在本轮 A/B/C 提交里修（避免扩大范围）。
-    - **P2 · 分类编辑 update 成功后 setParent 失败可能造成部分更新**：
-      `CategoryRepository.update` 先写分类主字段，再单独写 `parent_id`；第二步抛错时第一步已提交，
-      调用方看到「保存失败」但库里已部分生效。建议把两步放进同一事务，或在 `setParent` 失败时回滚主字段；
-      补一个「主字段更新成功 + setParent 抛错」的仓储测试，断言整次更新不落地。
+    - **✅ 已修复（2026-11-06）· P2 · 分类编辑 update 成功后 setParent 失败可能造成部分更新**：
+      原问题：`CategoryRepository.update` 先写分类主字段，再单独写 `parent_id`；第二步抛错时第一步已提交，
+      调用方看到「保存失败」但库里已部分生效。
+      修复：`CategoryRepository.update` 新增 `parentId` / `changeParent` 参数，主字段与父级两次写入放进
+      同一个 `_db.transaction`（先主字段、后父级），任一步失败整笔回滚；`setParent` 改为复用这条原子路径，
+      原有业务校验（不能挂自己 / 父分类存在 / 同收支类型 / 最多两级 / 有子分类不能再降级 / 同父级重名）全部保留。
+      `CategoryActions.update` 不再分两次调用仓储。
+      回归测试：`test/data/repositories/category_repository_test.dart` 的「分类编辑原子性」组，
+      用真实 SQLite trigger（`BEFORE UPDATE OF parent_id … RAISE(ABORT)`）在父级写入阶段注入数据库错误，
+      断言名称 / 图标 / 颜色 / 父级 / 排序 / updatedAt 全部保持原值（去掉事务后该用例会失败）。
     - **P3 · 导入 fingerprint 并发竞争**：
       `BillImporter.importRows` 先批量 `SELECT fingerprint` 再逐行插入；两个导入并发时都可能通过预查，
       最终由 `(book_id, fingerprint)` 唯一索引兜底。失败行会被计入 error 而不是 duplicate，

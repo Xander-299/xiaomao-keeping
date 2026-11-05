@@ -263,7 +263,9 @@ class CategoryRepository {
 
   /// 局部更新。改名 / 改图标 / 改颜色 / 挪父级 / 改排序 / 归档都用它。
   ///
-  /// 改 [parentId] 时传 `null` 表示“提为一级”—— 用 [setParent] 更清楚。
+  /// [changeParent] 为 true 时，主字段与父级变更在**同一个事务**里完成：
+  /// 主字段先写、父级后写，任一步失败（含数据库层失败）整笔回滚，
+  /// 不会出现「UI 报保存失败，但名称/图标已经落库」的半更新状态。
   Future<Category> update(
     String id, {
     String? name,
@@ -271,90 +273,109 @@ class CategoryRepository {
     String? color,
     int? sortOrder,
     int? isArchived,
-  }) async {
-    final Category? current = await getById(id);
-    if (current == null) throw const CategoryException('分类不存在或已删除');
+    String? parentId,
+    bool changeParent = false,
+  }) {
+    return _db.transaction<Category>(() async {
+      final Category? current = await getById(id);
+      if (current == null) throw const CategoryException('分类不存在或已删除');
 
-    String? trimmed;
-    if (name != null) {
-      trimmed = name.trim();
-      if (trimmed.isEmpty) throw const CategoryException('分类名称不能为空');
-      await _assertNameFree(
-        bookId: current.bookId,
-        kind: current.kind,
-        parentId: current.parentId,
-        name: trimmed,
-        excludeId: id,
-      );
-    }
+      String? trimmed;
+      if (name != null) {
+        trimmed = name.trim();
+        if (trimmed.isEmpty) throw const CategoryException('分类名称不能为空');
+      }
 
-    final int now = DateTime.now().millisecondsSinceEpoch;
-    await (_db.update(_db.categories)
-          ..where((t) => t.id.equals(id) & t.deletedAt.isNull()))
-        .write(
-          CategoriesCompanion(
-            name: trimmed == null ? const Value.absent() : Value(trimmed),
-            icon: icon == null ? const Value.absent() : Value(icon),
-            color: color == null ? const Value.absent() : Value(color),
-            sortOrder: sortOrder == null
-                ? const Value.absent()
-                : Value(sortOrder),
-            isArchived: isArchived == null
-                ? const Value.absent()
-                : Value(isArchived),
-            updatedAt: Value(now),
-            dirty: const Value(1),
-          ),
+      // 父级合法性：与 setParent 完全一致（自己、父存在、同类型、两级、无子分类）。
+      if (changeParent) {
+        await _assertParentAssignable(current, parentId);
+      }
+
+      final String? targetParentId = changeParent ? parentId : current.parentId;
+      if (trimmed != null || changeParent) {
+        await _assertNameFree(
+          bookId: current.bookId,
+          kind: current.kind,
+          parentId: targetParentId,
+          name: trimmed ?? current.name,
+          excludeId: id,
         );
-    final Category? fresh = await getById(id);
-    if (fresh == null) throw const CategoryException('分类不存在或已删除');
-    return fresh;
+      }
+
+      int? targetSortOrder = sortOrder;
+      if (changeParent) {
+        targetSortOrder = await _nextSortOrder(
+          current.bookId,
+          current.kind,
+          parentId,
+        );
+      }
+
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      // 第一段：主字段（名称 / 图标 / 颜色 / 排序 / 归档）。
+      await (_db.update(_db.categories)
+            ..where((t) => t.id.equals(id) & t.deletedAt.isNull()))
+          .write(
+            CategoriesCompanion(
+              name: trimmed == null ? const Value.absent() : Value(trimmed),
+              icon: icon == null ? const Value.absent() : Value(icon),
+              color: color == null ? const Value.absent() : Value(color),
+              sortOrder: targetSortOrder == null
+                  ? const Value.absent()
+                  : Value(targetSortOrder),
+              isArchived: isArchived == null
+                  ? const Value.absent()
+                  : Value(isArchived),
+              updatedAt: Value(now),
+              dirty: const Value(1),
+            ),
+          );
+
+      // 第二段：父级。与第一段同属一个事务 —— 这里失败会连第一段一起回滚。
+      if (changeParent) {
+        await (_db.update(_db.categories)..where((t) => t.id.equals(id)))
+            .write(
+              CategoriesCompanion(
+                parentId: Value(parentId),
+                updatedAt: Value(now),
+                dirty: const Value(1),
+              ),
+            );
+      }
+
+      final Category? fresh = await getById(id);
+      if (fresh == null) throw const CategoryException('分类不存在或已删除');
+      return fresh;
+    });
+  }
+
+  /// 父级变更的业务校验（`setParent` 与原子 `update` 共用）。
+  Future<void> _assertParentAssignable(Category current, String? parentId) async {
+    if (parentId == current.id) {
+      throw const CategoryException('不能把分类挂到自己下面');
+    }
+    if (parentId == null) return;
+
+    final Category? parent = await getById(parentId);
+    if (parent == null) throw const CategoryException('父分类不存在');
+    if (parent.kind != current.kind) {
+      throw const CategoryException('子分类必须和父分类同属支出或收入');
+    }
+    if (parent.parentId != null) {
+      throw const CategoryException('最多支持两级分类');
+    }
+    // 自己下面还有子分类时不能再变成二级（否则会出现三级）
+    final List<Category> kids = await childrenOf(current.id);
+    if (kids.isNotEmpty) {
+      throw const CategoryException('这个分类下还有子分类，不能再设为二级');
+    }
   }
 
   /// 改变父级（`null` = 提为一级）。只允许两级，且不能挂到自己的子分类下。
+  ///
+  /// 走原子 [update]：父级与主字段写在同一事务内。
   Future<void> setParent(String id, String? parentId) async {
-    final Category? current = await getById(id);
-    if (current == null) throw const CategoryException('分类不存在或已删除');
-    if (parentId == id) throw const CategoryException('不能把分类挂到自己下面');
-
-    if (parentId != null) {
-      final Category? parent = await getById(parentId);
-      if (parent == null) throw const CategoryException('父分类不存在');
-      if (parent.kind != current.kind) {
-        throw const CategoryException('子分类必须和父分类同属支出或收入');
-      }
-      if (parent.parentId != null) {
-        throw const CategoryException('最多支持两级分类');
-      }
-      // 自己下面还有子分类时不能再变成二级（否则会出现三级）
-      final List<Category> kids = await childrenOf(id);
-      if (kids.isNotEmpty) {
-        throw const CategoryException('这个分类下还有子分类，不能再设为二级');
-      }
-    }
-
-    await _assertNameFree(
-      bookId: current.bookId,
-      kind: current.kind,
-      parentId: parentId,
-      name: current.name,
-      excludeId: id,
-    );
-
-    final int order = await _nextSortOrder(
-      current.bookId,
-      current.kind,
-      parentId,
-    );
-    final int now = DateTime.now().millisecondsSinceEpoch;
-    await (_db.update(_db.categories)..where((t) => t.id.equals(id))).write(
-      CategoriesCompanion(
-        parentId: Value(parentId),
-        sortOrder: Value(order),
-        updatedAt: Value(now),
-        dirty: const Value(1),
-      ),
-    );
+    await update(id, parentId: parentId, changeParent: true);
   }
 
   // ────────────────────────────── 排序 ──────────────────────────────
