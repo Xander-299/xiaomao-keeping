@@ -20,7 +20,7 @@ import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/data/providers/category_providers.dart';
-import 'package:yanxin/data/repositories/category_repository.dart';
+import 'package:yanxin/features/shared/write_failure.dart';
 
 import '../../application/category_actions.dart';
 import 'category_icon_sheet.dart';
@@ -155,18 +155,13 @@ class _CategoryEditorState extends ConsumerState<_CategoryEditor> {
         );
       }
       if (mounted) Navigator.of(context).pop(true);
-    } on CategoryException catch (e) {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-          _error = e.message;
-        });
-      }
     } catch (e) {
+      // CategoryException 由 writeFailureMessage 保留业务 message；
+      // 数据库/磁盘等非预期异常统一成「保存分类失败」，不暴露 $e。
       if (mounted) {
         setState(() {
           _saving = false;
-          _error = '保存失败：$e';
+          _error = writeFailureMessage(e, action: '保存分类');
         });
       }
     }
