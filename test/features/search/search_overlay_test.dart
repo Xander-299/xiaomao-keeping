@@ -7,16 +7,21 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'package:yanxin/app.dart';
 
 import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/theme/toon.dart';
+import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/data/repositories/account_repository.dart';
 import 'package:yanxin/data/repositories/app_meta_repository.dart';
 import 'package:yanxin/data/repositories/book_repository.dart';
 import 'package:yanxin/data/repositories/category_repository.dart';
 import 'package:yanxin/data/repositories/transaction_repository.dart';
 import 'package:yanxin/features/ledger/presentation/home_page.dart';
+import 'package:yanxin/features/onboarding/application/onboarding_keys.dart';
 import 'package:yanxin/features/search/application/search_history.dart';
 import 'package:yanxin/features/search/presentation/search_overlay.dart';
 
@@ -83,6 +88,38 @@ Future<void> _seed(AppDatabase db) async {
 /// 从首页搜索图标打开搜索浮层（F7.5 起是 dialog，不再是路由跳转）。
 Future<void> _openSearch(WidgetTester tester, AppDatabase db) async {
   await pumpApp(tester, database: db);
+  await tester.tap(find.byTooltip('搜索'));
+  await tester.pumpAndSettle();
+}
+
+
+/// 删除必定失败（模拟数据库锁 / 磁盘异常）。
+class _FailingDeleteRepo extends TransactionRepository {
+  _FailingDeleteRepo(super.db);
+
+  @override
+  Future<int> softDelete(String id) async {
+    throw StateError('database is locked');
+  }
+}
+
+/// 用指定仓储打开 App 并进入搜索浮层（失败路径需要替换仓储）。
+Future<void> _openSearchWithRepo(
+  WidgetTester tester,
+  AppDatabase db,
+  TransactionRepository repo,
+) async {
+  await AppMetaRepository(db).set(kOnboardingDoneKey, kOnboardingDoneValue);
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        appDatabaseProvider.overrideWithValue(db),
+        transactionRepositoryProvider.overrideWithValue(repo),
+      ],
+      child: const YanxinApp(),
+    ),
+  );
+  await tester.pumpAndSettle();
   await tester.tap(find.byTooltip('搜索'));
   await tester.pumpAndSettle();
 }
@@ -396,21 +433,26 @@ void main() {
     await tester.drag(_inOverlay(find.text('-12.00')), const Offset(-200, 0));
     await tester.pumpAndSettle();
 
-    // 此刻动作区的「删除」是浮层内唯一一个（确认框还没弹）
+    // 动作区的「删除」→ 弹二次确认框（PRD / SPEC-F7.4 要求）
     await tester.tap(_inOverlay(find.text('删除')));
     await tester.pumpAndSettle();
     expect(find.text('删除这笔'), findsOneWidget);
 
-    // 确认框里的「删除」是 ToonButton（动作区那个是裸 Text，用 widgetWithText 区分）
     await tester.tap(find.widgetWithText(ToonButton, '删除'));
     await tester.pumpAndSettle();
 
     expect(_inOverlay(find.text('没有匹配「打车」的账单')), findsOneWidget);
+    expect(find.textContaining('已删除「'), findsOneWidget);
 
     final book = await BookRepository(db).ensureDefaultBook();
     final rows = await TransactionRepository(db).listByBook(book.id);
     expect(rows.map((t) => t.note), isNot(contains('打车')));
     expect(rows, hasLength(2));
+
+    // 撤销：SnackBar 上的「撤销」→ 记录恢复回搜索结果
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(_inOverlay(find.text('-12.00')), findsOneWidget);
   });
 
   // ===== F7.7 D 批：账户名命中 / 时间区间 / 搜索历史 / 高亮 =====
@@ -536,6 +578,60 @@ void main() {
     expect(historyChip, findsNothing);
     expect(await AppMetaRepository(db).get(kSearchHistoryKey), isNull);
   });
+  testWidgets('确认框点「取消」：不软删、不提示，记录仍在结果里', (
+    WidgetTester tester,
+  ) async {
+    final db = openTestDatabase();
+    addTearDown(db.close);
+    await _seed(db);
+
+    await _openSearch(tester, db);
+    await _type(tester, '打车');
+
+    await tester.drag(_inOverlay(find.text('-12.00')), const Offset(-200, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(_inOverlay(find.text('删除')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ToonButton, '取消'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除这笔'), findsNothing);
+    expect(find.textContaining('已删除「'), findsNothing);
+    expect(_inOverlay(find.text('-12.00')), findsOneWidget);
+
+    final book = await BookRepository(db).ensureDefaultBook();
+    final rows = await TransactionRepository(db).listByBook(book.id);
+    expect(rows.map((t) => t.note), contains('打车'));
+    expect(rows, hasLength(3));
+  });
+
+  testWidgets('删除遇到数据库异常：显示失败、无 Undo、记录仍在', (
+    WidgetTester tester,
+  ) async {
+    final db = openTestDatabase();
+    addTearDown(db.close);
+    await _seed(db);
+
+    await _openSearchWithRepo(tester, db, _FailingDeleteRepo(db));
+    await _type(tester, '打车');
+
+    await tester.drag(_inOverlay(find.text('-12.00')), const Offset(-200, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(_inOverlay(find.text('删除')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ToonButton, '删除'));
+    await _pumpDb(tester);
+
+    expect(find.text('删除失败，请稍后重试'), findsOneWidget);
+    expect(find.textContaining('已删除「'), findsNothing);
+    expect(_inOverlay(find.text('-12.00')), findsOneWidget);
+
+    final book = await BookRepository(db).ensureDefaultBook();
+    final rows = await TransactionRepository(db).listByBook(book.id);
+    expect(rows.map((t) => t.note), contains('打车'));
+    expect(rows, hasLength(3));
+  });
 }
 
 /// 数一数 `TextSpan` 树里带高亮底色的段数（>0 即「确实高亮了」）。
@@ -547,4 +643,5 @@ int _highlightCount(InlineSpan span) {
     return true;
   });
   return count;
+
 }

@@ -30,6 +30,7 @@ class AutoBookBatch {
     required this.count,
     required this.totalCents,
     required this.atMs,
+    this.bookId,
   });
 
   final String batchId;
@@ -38,12 +39,17 @@ class AutoBookBatch {
   final int totalCents;
   final int atMs;
 
+  /// 这批流水所属账本。Batch A / A3 新增；旧版 JSON 没有该字段时为 null，
+  /// 撤销时由 `TransactionRepository.bookIdOfTransactions` 反推。
+  final String? bookId;
+
   Map<String, Object?> toJson() => <String, Object?>{
     'batchId': batchId,
     'txIds': txIds,
     'count': count,
     'totalCents': totalCents,
     'atMs': atMs,
+    if (bookId != null) 'bookId': bookId,
   };
 
   /// 结构不对返回 null（坏数据不阻断读取）。
@@ -60,12 +66,14 @@ class AutoBookBatch {
     final Object? count = map['count'];
     final Object? total = map['totalCents'];
     final Object? at = map['atMs'];
+    final Object? book = map['bookId'];
     return AutoBookBatch(
       batchId: id,
       txIds: txIds,
       count: count is num ? count.toInt() : txIds.length,
       totalCents: total is num ? total.toInt() : 0,
       atMs: at is num ? at.toInt() : 0,
+      bookId: book is String && book.isNotEmpty ? book : null,
     );
   }
 }

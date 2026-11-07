@@ -1,14 +1,13 @@
-/// drift 数据库入口（schema **v3**）。
+/// drift 数据库入口（schema **v5**）。
 ///
 /// 版本号由 drift 托管（写进 `PRAGMA user_version`）；`schema_meta` 表保留
 /// 用于 KV 持久化（如 active_book_id），与旧栈 DDL 一致（ADR-8）。
 ///
 /// v1 → v2 只做**加表**：新增 `budgets`（月度预算）+ 一条部分唯一索引。
-/// v1 的 5 张表结构与 7 条索引一字未改，老库升级不触碰任何既有数据。
-///
-/// v2 → v3 只做**加列**：`accounts.icon` / `accounts.color`（TEXT NOT NULL
-/// DEFAULT ''，F7.7 C 批账户自选图标 / 颜色）。空串 = 跟随账户类型；
-/// 老库升级走 `ALTER TABLE ADD COLUMN`，不改任何既有行。
+/// v2 → v3 只做**加列**：`accounts.icon` / `accounts.color`。
+/// v3 → v4 只做**加列**：`categories.parent_id` / `categories.is_archived`。
+/// v4 → v5 只**替换索引**：流水指纹唯一性从全局收紧为 `(book_id, fingerprint)`，
+/// 不重建表、不改任何既有行（Batch A / A1）。
 library;
 
 import 'package:drift/drift.dart';
@@ -18,6 +17,7 @@ import '../constants/preset.dart';
 import 'schema_v1.dart';
 import 'schema_v2.dart';
 import 'schema_v4.dart';
+import 'schema_v5.dart';
 import 'tables.dart';
 
 part 'database.g.dart';
@@ -29,7 +29,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -44,6 +44,10 @@ class AppDatabase extends _$AppDatabase {
             await customStatement(sql);
           }
           for (final sql in kSchemaV4Indexes) {
+            await customStatement(sql);
+          }
+          // v5 替换 v1 的全局指纹索引；新库也走同一份 DDL，保证「新建 = 升级后」。
+          for (final sql in kSchemaV5Indexes) {
             await customStatement(sql);
           }
         },
@@ -78,6 +82,13 @@ class AppDatabase extends _$AppDatabase {
               await customStatement(sql);
             }
             await _backfillCategoryIcons();
+          }
+          if (from < 5) {
+            // v5：只替换索引，不重建表、不改既有行。
+            // 旧库的 idx_tx_fingerprint 是全局唯一；先 DROP 再按 (book_id, fingerprint) 建。
+            for (final sql in kSchemaV5Indexes) {
+              await customStatement(sql);
+            }
           }
         },
       );

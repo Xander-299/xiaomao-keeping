@@ -24,6 +24,9 @@ abstract final class Tok {
   static const double rLg = 16;
   static const double rMd = 12;
   static const double rSm = 8;
+
+  /// 通用间距：轻提示内图标与文案之间需要的最小刻度。
+  static const double s8 = 8;
 }
 
 /// 构建一套 Material 3 主题（浅色 / 深色同一份结构，色板来自 [p]）。

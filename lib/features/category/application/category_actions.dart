@@ -53,6 +53,9 @@ class CategoryActions {
   }
 
   /// 编辑（名称 / 图标 / 颜色 / 父级）。
+  ///
+  /// 主字段与父级由仓储在**同一事务**内写入，任一步失败整笔回滚，
+  /// 不会出现「保存失败但名称已改」的半更新。
   Future<void> update(
     String id, {
     String? name,
@@ -61,10 +64,14 @@ class CategoryActions {
     String? parentId,
     bool changeParent = false,
   }) async {
-    await _repo.update(id, name: name, icon: icon, color: color);
-    if (changeParent) {
-      await _repo.setParent(id, parentId);
-    }
+    await _repo.update(
+      id,
+      name: name,
+      icon: icon,
+      color: color,
+      parentId: parentId,
+      changeParent: changeParent,
+    );
     _refresh();
   }
 
@@ -82,6 +89,13 @@ class CategoryActions {
   Future<void> deleteIfUnused(String id) async {
     await _repo.deleteIfUnused(id);
     _refresh();
+  }
+
+  /// 撤销删除（无引用删除路径）。父分类已不存在时拒绝恢复并返回 false。
+  Future<bool> undoDelete(String id) async {
+    final bool ok = await _repo.undelete(id);
+    if (ok) _refresh();
+    return ok;
   }
 
   /// 把账单迁到 [toId] 后删除 [fromId]（含子分类）。返回迁移笔数。

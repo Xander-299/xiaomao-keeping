@@ -30,6 +30,41 @@ final class ImportDuplicate extends ImportResult {
   final TxRow existingTx;
 }
 
+/// 恢复软删流水的结果。
+///
+/// 失败原因必须可识别，调用方不能再把「账户已删」「分类已删」「指纹冲突」
+/// 统一说成「同指纹记录已存在」。成功时返回 [restored]。
+enum TxRestoreResult {
+  /// 恢复成功，流水重新可见。
+  restored,
+
+  /// 找不到这条流水。
+  notFound,
+
+  /// 流水当前不是软删状态（已经恢复过 / 从未删除）。
+  notDeleted,
+
+  /// 所属账本不存在或已软删除。
+  bookUnavailable,
+
+  /// 关联账户不存在、已删除或不属于同一账本。
+  accountUnavailable,
+
+  /// 关联分类不存在、已删除或不属于同一账本。
+  categoryUnavailable,
+
+  /// 分类的收支方向与流水类型不一致。
+  categoryKindMismatch,
+
+  /// 同账本内已有同指纹的活跃流水，恢复会撞唯一索引。
+  fingerprintConflict,
+}
+
+extension TxRestoreResultX on TxRestoreResult {
+  bool get isRestored => this == TxRestoreResult.restored;
+}
+
+
 class TransactionRepository {
   TransactionRepository(this._db);
 
@@ -211,6 +246,140 @@ class TransactionRepository {
         );
   }
 
+  /// 由一批流水 id 推导其所属账本。
+  ///
+  /// 只用于兼容**旧版自动记账批次**（JSON 里没有 bookId）。要求：
+  /// - 所有 id 都能查到行；
+  /// - 所有行属于同一个 bookId。
+  /// 任一不满足返回 null，调用方应拒绝撤销，避免跨账本误删。
+  Future<String?> bookIdOfTransactions(List<String> ids) async {
+    final List<String> unique = ids.toSet().toList();
+    if (unique.isEmpty) return null;
+    final List<TxRow> rows = await (_db.select(_db.transactions)
+          ..where((t) => t.id.isIn(unique)))
+        .get();
+    if (rows.length != unique.length) return null;
+    final Set<String> books = rows.map((TxRow t) => t.bookId).toSet();
+    return books.length == 1 ? books.first : null;
+  }
+
+  /// 批量软删一批流水（A3）。
+  ///
+  /// **调用方必须把它和批次记录更新放在同一个 `db.transaction` 里**；
+  /// 本方法不再自行开事务，避免嵌套事务语义不确定。
+  ///
+  /// 先校验所有 id 都存在且属于 [bookId]；任一行缺失或跨账本直接抛
+  /// [StateError]，由外层事务整体回滚。只更新 `deleted_at IS NULL` 的行，
+  /// 已软删的行计入 0（重复撤销幂等）。
+  Future<int> softDeleteBatch({
+    required List<String> ids,
+    required String bookId,
+  }) async {
+    final List<String> unique = ids.toSet().toList();
+    if (unique.isEmpty) return 0;
+    final List<TxRow> rows = await (_db.select(_db.transactions)
+          ..where((t) => t.id.isIn(unique)))
+        .get();
+    if (rows.length != unique.length ||
+        rows.any((TxRow t) => t.bookId != bookId)) {
+      throw StateError('批次流水不存在或不属于账本 $bookId，拒绝批量撤销');
+    }
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    return (_db.update(_db.transactions)
+          ..where(
+            (t) =>
+                t.id.isIn(unique) &
+                t.bookId.equals(bookId) &
+                t.deletedAt.isNull(),
+          ))
+        .write(
+          TransactionsCompanion(
+            deletedAt: Value(now),
+            updatedAt: Value(now),
+            dirty: const Value(1),
+          ),
+        );
+  }
+
+  /// 恢复一笔软删的流水（写回 deleted_at = null）。
+  ///
+  /// Batch A / A2：恢复前在**同一事务**内校验引用完整性，任一不满足都返回
+  /// 可识别失败、且不写回任何字段：
+  /// - 账本存在且未删除；
+  /// - 账户存在、未删除、属于同账本；
+  /// - 非 transfer 流水的分类存在、未删除、属于同账本、kind 与 type 一致；
+  ///   「已归档但未删除」的分类允许恢复（历史流水仍应能显示归档分类）；
+  /// - 同账本内没有同指纹活跃行（唯一索引是 `(book_id, fingerprint)`）。
+  Future<TxRestoreResult> restoreTx(String id) {
+    return _db.transaction<TxRestoreResult>(() async {
+      final TxRow? row =
+          await (_db.select(_db.transactions)..where((t) => t.id.equals(id)))
+              .getSingleOrNull();
+      if (row == null) return TxRestoreResult.notFound;
+      if (row.deletedAt == null) return TxRestoreResult.notDeleted;
+
+      final Book? book = await (_db.select(_db.books)
+            ..where((b) => b.id.equals(row.bookId)))
+          .getSingleOrNull();
+      if (book == null || book.deletedAt != null) {
+        return TxRestoreResult.bookUnavailable;
+      }
+
+      final Account? account = await (_db.select(_db.accounts)
+            ..where((a) => a.id.equals(row.accountId)))
+          .getSingleOrNull();
+      if (account == null ||
+          account.deletedAt != null ||
+          account.bookId != row.bookId) {
+        return TxRestoreResult.accountUnavailable;
+      }
+
+      if (row.type != 'transfer') {
+        final String? categoryId = row.categoryId;
+        if (categoryId == null || categoryId.isEmpty) {
+          return TxRestoreResult.categoryUnavailable;
+        }
+        final Category? category = await (_db.select(_db.categories)
+              ..where((c) => c.id.equals(categoryId)))
+            .getSingleOrNull();
+        if (category == null ||
+            category.deletedAt != null ||
+            category.bookId != row.bookId) {
+          return TxRestoreResult.categoryUnavailable;
+        }
+        if (category.kind != row.type) {
+          return TxRestoreResult.categoryKindMismatch;
+        }
+      }
+
+      if (row.fingerprint != null) {
+        final List<TxRow> clash =
+            await (_db.select(_db.transactions)
+                  ..where(
+                    (t) =>
+                        t.bookId.equals(row.bookId) &
+                        t.fingerprint.equals(row.fingerprint!) &
+                        t.deletedAt.isNull(),
+                  ))
+                .get();
+        if (clash.isNotEmpty) return TxRestoreResult.fingerprintConflict;
+      }
+
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final int changed = await (_db.update(_db.transactions)
+            ..where((t) => t.id.equals(id) & t.deletedAt.isNotNull()))
+          .write(
+            TransactionsCompanion(
+              deletedAt: const Value(null),
+              updatedAt: Value(now),
+              dirty: const Value(1),
+            ),
+          );
+      if (changed == 0) return TxRestoreResult.notDeleted;
+      return TxRestoreResult.restored;
+    });
+  }
+
   /// 统一入账入口（自动记账模块调用）。
   ///
   /// [source]='manual' 时 fingerprint 为 null，不参与查重（同金额同时间可重复记）；
@@ -252,7 +421,12 @@ class TransactionRepository {
       occurredAt: occurredAt,
     );
     final existing = await (_db.select(_db.transactions)
-          ..where((t) => t.fingerprint.equals(fp) & t.deletedAt.isNull()))
+          ..where(
+            (t) =>
+                t.bookId.equals(bookId) &
+                t.fingerprint.equals(fp) &
+                t.deletedAt.isNull(),
+          ))
         .getSingleOrNull();
     if (existing != null) return ImportDuplicate(existing);
 

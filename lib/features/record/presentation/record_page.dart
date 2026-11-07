@@ -33,6 +33,7 @@ import 'package:yanxin/data/providers/category_providers.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/features/calendar/application/calendar_controller.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
+import 'package:yanxin/features/shared/write_failure.dart';
 import 'package:yanxin/features/stats/application/stats_controller.dart';
 
 import '../application/amount_input.dart';
@@ -163,7 +164,7 @@ class _RecordPageState extends ConsumerState<RecordPage> {
   /// 选账户（F7.7 A.0）。
   Future<void> _pickAccount(List<Account> accounts) async {
     if (accounts.isEmpty) {
-      _toast('账本无账户');
+      showToonError(context, '账本无账户');
       return;
     }
     final Account? picked = await showAccountPicker(
@@ -177,46 +178,74 @@ class _RecordPageState extends ConsumerState<RecordPage> {
 
   Future<void> _save() async {
     if (!isParsableAmount(_amount) || yuanToCents(_amount) <= 0) {
-      _toast('请输入金额');
+      showToonError(context, '请输入金额');
       return;
     }
     if (_categoryId == null) {
-      _toast('请选择分类');
+      showToonError(context, '请选择分类');
       return;
     }
-    final bookId = await ref.read(activeBookIdProvider.future);
-    if (bookId == null) return;
-    final List<Account> accounts = await ref.read(accountsProvider.future);
+    final String? bookId;
+    try {
+      bookId = await ref.read(activeBookIdProvider.future);
+    } catch (e) {
+      if (!mounted) return;
+      showToonError(context, writeFailureMessage(e, action: '读取账本'));
+      return;
+    }
+    if (bookId == null) {
+      if (!mounted) return;
+      showToonError(context, '账本未就绪，无法保存');
+      return;
+    }
+    final List<Account> accounts;
+    try {
+      accounts = await ref.read(accountsProvider.future);
+    } catch (e) {
+      if (!mounted) return;
+      showToonError(context, writeFailureMessage(e, action: '读取账户'));
+      return;
+    }
     final Account? account = _effectiveAccount(accounts);
     if (account == null) {
-      _toast('账本无账户');
+      if (!mounted) return;
+      showToonError(context, '账本无账户');
       return;
     }
 
+    if (!mounted) return;
     setState(() => _saving = true);
     try {
       final repo = ref.read(transactionRepositoryProvider);
       final amountCents = yuanToCents(_amount);
-      if (_isEdit) {
-        await repo.update(
-          widget.txId!,
-          type: _type,
-          categoryId: _categoryId,
-          accountId: account.id,
-          amountCents: amountCents,
-          occurredAt: _occurredAtMs,
-          note: _noteController.text.trim(),
-        );
-      } else {
-        await repo.create(
-          bookId: bookId,
-          accountId: account.id,
-          type: _type,
-          categoryId: _categoryId,
-          amountCents: amountCents,
-          occurredAt: _occurredAtMs,
-          note: _noteController.text.trim(),
-        );
+      try {
+        if (_isEdit) {
+          await repo.update(
+            widget.txId!,
+            type: _type,
+            categoryId: _categoryId,
+            accountId: account.id,
+            amountCents: amountCents,
+            occurredAt: _occurredAtMs,
+            note: _noteController.text.trim(),
+          );
+        } else {
+          await repo.create(
+            bookId: bookId,
+            accountId: account.id,
+            type: _type,
+            categoryId: _categoryId,
+            amountCents: amountCents,
+            occurredAt: _occurredAtMs,
+            note: _noteController.text.trim(),
+          );
+        }
+      } catch (e) {
+        // 数据库锁 / 磁盘 / Drift 等非业务异常：不 pop、不报成功，保留输入。
+        if (mounted) {
+          showToonError(context, writeFailureMessage(e, action: '保存'));
+        }
+        return;
       }
       // 刷新首页 / 日历（go_router push 的 Future 在壳路由下不兑现 .then，
       // 刷新必须在 pop 前由本页自己触发）
@@ -232,11 +261,6 @@ class _RecordPageState extends ConsumerState<RecordPage> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-
-  void _toast(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

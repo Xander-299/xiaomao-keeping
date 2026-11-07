@@ -5,6 +5,7 @@ import 'package:sqlite3/sqlite3.dart' as sqlite;
 import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/db/schema_v1.dart';
 import 'package:yanxin/core/db/schema_v2.dart';
+import 'package:yanxin/core/db/schema_v5.dart';
 import 'package:yanxin/data/repositories/account_repository.dart';
 import 'package:yanxin/data/repositories/budget_repository.dart';
 
@@ -63,6 +64,7 @@ void main() {
           )
           .getSingle();
       expect(sql.read<String>('sql'), contains('UNIQUE'));
+      expect(sql.read<String>('sql'), contains('book_id'));
       expect(sql.read<String>('sql'), contains('deleted_at IS NULL'));
 
       final occurred = await db
@@ -97,29 +99,39 @@ void main() {
       await insert('g4', 1); // 已删的可以有任意多条
     });
 
-    test('schemaVersion 落库为 4（PRAGMA user_version）', () async {
+    test('schemaVersion 落库为 5（PRAGMA user_version）', () async {
       final row = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(row.read<int>('user_version'), 4);
+      expect(row.read<int>('user_version'), 5);
     });
 
     test('建表/建索引 DDL 幂等：重复执行不报错且版本不变', () async {
-      for (final sql in <String>[...kSchemaV1Indexes, ...kSchemaV2Indexes]) {
+      for (final sql in <String>[
+        ...kSchemaV1Indexes,
+        ...kSchemaV2Indexes,
+        ...kSchemaV5Indexes,
+      ]) {
         await db.customStatement(sql);
       }
       final row = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(row.read<int>('user_version'), 4);
+      expect(row.read<int>('user_version'), 5);
     });
 
-    test('指纹部分唯一索引：同样指纹两条 → UNIQUE 冲突', () async {
+    test('指纹部分唯一索引：同账本重复冲突，跨账本允许', () async {
       const fp = 'same-fingerprint';
-      Future<void> insert(String id) => db.customStatement(
+      Future<void> insert(String id, String bookId) => db.customStatement(
         'INSERT INTO transactions(id, book_id, account_id, type, amount_cents, '
         'occurred_at, created_at, updated_at, fingerprint) '
-        "VALUES('$id','b1','a1','expense',100,1,1,1,'$fp')",
+        "VALUES('$id','$bookId','a1','expense',100,1,1,1,'$fp')",
       );
 
-      await insert('t1');
-      expect(insert('t2'), throwsA(isA<sqlite.SqliteException>()));
+      await insert('t1', 'b1');
+      // 同一账本第二条 → UNIQUE 冲突
+      expect(
+        insert('t2', 'b1'),
+        throwsA(isA<sqlite.SqliteException>()),
+      );
+      // 不同账本同指纹 → 允许（Batch A / A1）
+      await insert('t3', 'b2');
     });
 
     test('指纹部分唯一索引：软删后可再写同指纹', () async {
@@ -206,7 +218,7 @@ void main() {
       expect(await _objects(v2, 'index'), contains('idx_budget_book_period'));
       final int after = (await v2.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version');
-      expect(after, 4); // 一次走完 1→2→3→4 三条迁移
+      expect(after, 5); // 一次走完 1→2→3→4→5 四条迁移
 
       // 老数据仍在
       final book = await v2
@@ -256,13 +268,13 @@ void main() {
       await v2.customStatement('PRAGMA user_version = 2');
       await v2.close();
 
-      // 用「新版本代码」打开同一个库 → 走 onUpgrade(from 2, to 4)
+      // 用「新版本代码」打开同一个库 → 走 onUpgrade(from 2, to 5)
       final AppDatabase v3 = AppDatabase(NativeDatabase.opened(raw));
       addTearDown(v3.close);
 
       final int after = (await v3.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version');
-      expect(after, 4);
+      expect(after, 5);
 
       // 既有行数据不丢，且新列落默认空串（= 跟随类型）
       final row = await v3
@@ -282,6 +294,71 @@ void main() {
       );
       expect(created.icon, 'piggy');
       expect(created.color, '#FF6B8A');
+    });
+  });
+
+  // Batch A / A1：v4 的指纹索引是全局唯一；v5 必须只替换索引，
+  // 既保留旧数据，又允许不同账本使用相同指纹。
+  group('v4 → v5 迁移', () {
+    test('全局指纹索引升级为账本内唯一，旧数据不丢', () async {
+      final sqlite.Database raw = sqlite.sqlite3.openInMemory();
+
+      final AppDatabase v4 = AppDatabase(
+        NativeDatabase.opened(raw, closeUnderlyingOnClose: false),
+      );
+      await v4.customSelect('SELECT 1').get();
+      await v4.customStatement(
+        'INSERT INTO books(id, name, created_at, updated_at) '
+        "VALUES('b1','旧账本',1,1)",
+      );
+      await v4.customStatement(
+        'INSERT INTO transactions(id, book_id, account_id, type, amount_cents, '
+        'occurred_at, created_at, updated_at, fingerprint) '
+        "VALUES('t1','b1','a1','expense',8888,1,1,1,'legacy-fp')",
+      );
+      // 退回 v4 的全局唯一索引 + 版本号
+      await v4.customStatement('DROP INDEX IF EXISTS idx_tx_fingerprint');
+      await v4.customStatement(
+        'CREATE UNIQUE INDEX idx_tx_fingerprint ON transactions(fingerprint) '
+        'WHERE fingerprint IS NOT NULL AND deleted_at IS NULL',
+      );
+      await v4.customStatement('PRAGMA user_version = 4');
+      await v4.close();
+
+      final AppDatabase v5 = AppDatabase(NativeDatabase.opened(raw));
+      addTearDown(v5.close);
+
+      final int after = (await v5.customSelect('PRAGMA user_version').getSingle())
+          .read<int>('user_version');
+      expect(after, 5);
+
+      final index = await v5
+          .customSelect(
+            "SELECT sql FROM sqlite_master WHERE name = 'idx_tx_fingerprint'",
+          )
+          .getSingle();
+      expect(index.read<String>('sql'), contains('book_id'));
+
+      final old = await v5
+          .customSelect("SELECT amount_cents FROM transactions WHERE id = 't1'")
+          .getSingle();
+      expect(old.read<int>('amount_cents'), 8888);
+
+      // 不同账本同指纹现在允许
+      await v5.customStatement(
+        'INSERT INTO transactions(id, book_id, account_id, type, amount_cents, '
+        'occurred_at, created_at, updated_at, fingerprint) '
+        "VALUES('t2','b2','a1','expense',8888,1,1,1,'legacy-fp')",
+      );
+      // 同账本同指纹仍冲突
+      expect(
+        v5.customStatement(
+          'INSERT INTO transactions(id, book_id, account_id, type, amount_cents, '
+          'occurred_at, created_at, updated_at, fingerprint) '
+          "VALUES('t3','b1','a1','expense',8888,1,1,1,'legacy-fp')",
+        ),
+        throwsA(isA<sqlite.SqliteException>()),
+      );
     });
   });
 }

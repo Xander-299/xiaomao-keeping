@@ -17,12 +17,16 @@ import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/providers/data_epoch.dart';
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
+import 'package:yanxin/core/utils/money.dart';
 import 'package:yanxin/data/providers/database.dart';
+import 'package:yanxin/data/repositories/transaction_repository.dart';
 import 'package:yanxin/features/calendar/application/calendar_controller.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
 import 'package:yanxin/features/ledger/application/month_summary.dart';
+import 'package:yanxin/features/ledger/presentation/tx_restore_message.dart';
 import 'package:yanxin/features/ledger/presentation/widgets/tx_delete_dialog.dart';
 import 'package:yanxin/features/ledger/presentation/widgets/tx_group_list.dart';
+import 'package:yanxin/features/shared/write_failure.dart';
 import 'package:yanxin/features/stats/application/stats_controller.dart';
 
 import '../application/search_controller.dart';
@@ -48,7 +52,14 @@ Future<void> showSearchOverlay(BuildContext context) {
     // 遮罩自己画：要毛玻璃不要纯色，所以让 barrier 透明
     barrierColor: Colors.transparent,
     transitionDuration: const Duration(milliseconds: 150),
-    pageBuilder: (_, _, _) => const SearchOverlay(),
+    // 浮层是独立路由，根 Scaffold 的 SnackBar 会被玻璃盖住（不可点）——
+    // 路由内自带 ScaffoldMessenger + Scaffold，让删除反馈浮在玻璃之上。
+    pageBuilder: (_, _, _) => const ScaffoldMessenger(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SearchOverlay(),
+      ),
+    ),
     transitionBuilder: (_, Animation<double> anim, _, Widget child) =>
         FadeTransition(opacity: anim, child: child),
   );
@@ -151,8 +162,15 @@ class _SearchOverlayState extends ConsumerState<SearchOverlay> {
 
   Future<void> _confirmDelete(TxRow tx) async {
     if (!await confirmDeleteTx(context)) return;
-    await ref.read(transactionRepositoryProvider).softDelete(tx.id);
-    await ref.read(searchProvider.notifier).refresh();
+    try {
+      await ref.read(transactionRepositoryProvider).softDelete(tx.id);
+      await ref.read(searchProvider.notifier).refresh();
+    } catch (e) {
+      if (mounted) {
+        showToonError(context, writeFailureMessage(e, action: '删除'));
+      }
+      return;
+    }
     // 首页 / 日历 / 统计是同屏数据的其它视图，常驻 Notifier 不会自己感知删除
     // （与 home_page 的删除链路保持一致）
     unawaited(ref.read(ledgerProvider.notifier).refresh());
@@ -162,6 +180,39 @@ class _SearchOverlayState extends ConsumerState<SearchOverlay> {
     // 资产页 watch 数据版本号，bump 即重算
     ref.read(dataEpochProvider.notifier).bump();
     if (mounted) setState(() {});
+    final BuildContext pageContext = context;
+    if (!pageContext.mounted) return;
+    final String label = tx.note.isNotEmpty
+        ? tx.note
+        : '${centsToYuan(tx.amountCents, group: true)} 元';
+    showToonUndo(
+      pageContext,
+      '已删除「$label」',
+      onUndo: () async {
+        final TxRestoreResult result;
+        try {
+          result = await ref.read(transactionRepositoryProvider).restoreTx(tx.id);
+        } catch (e) {
+          if (pageContext.mounted) {
+            showToonError(pageContext, writeFailureMessage(e, action: '撤销'));
+          }
+          return;
+        }
+        if (!result.isRestored) {
+          if (pageContext.mounted) {
+            showToonError(pageContext, txRestoreFailureMessage(result));
+          }
+          return;
+        }
+        await ref.read(searchProvider.notifier).refresh();
+        unawaited(ref.read(ledgerProvider.notifier).refresh());
+        unawaited(ref.read(calendarProvider.notifier).refresh());
+        unawaited(ref.read(statsProvider.notifier).refresh());
+        ref.invalidate(yearDayIndexProvider);
+        ref.read(dataEpochProvider.notifier).bump();
+        if (mounted) setState(() {});
+      },
+    );
   }
 
   @override

@@ -137,18 +137,50 @@ class _AutoBookPageState extends ConsumerState<AutoBookPage>
   }
 
   Future<void> _undoLatest(AutoBookBatch batch) async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: Text('撤销这 ${batch.count} 笔？'),
+        content: const Text('会自动删除这一批自动记账的流水，不影响你手工记的账。'),
+        actions: <Widget>[
+          ToonButton(
+            small: true,
+            kind: ToonButtonKind.ghost,
+            label: '算了',
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+          ),
+          ToonButton(
+            small: true,
+            kind: ToonButtonKind.danger,
+            label: '撤销',
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-    final int deleted = await ref
-        .read(autoBookNoticeProvider.notifier)
-        .undo(batch.batchId);
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(deleted > 0 ? '已撤销 $deleted 笔' : '这批已撤销或不复存在'),
-          duration: const Duration(seconds: 2),
-        ),
+    final ToonPalette palette = context.toon;
+    final int deleted;
+    try {
+      deleted = await ref
+          .read(autoBookNoticeProvider.notifier)
+          .undo(batch.batchId);
+    } catch (_) {
+      showToonErrorOnMessenger(
+        messenger: messenger,
+        palette: palette,
+        message: '撤销失败，已保留这一批，请重试',
       );
+      return;
+    }
+    showToonFeedbackOnMessenger(
+      messenger: messenger,
+      palette: palette,
+      message: deleted > 0 ? '已撤销 $deleted 笔' : '这批已撤销或不复存在',
+      kind: deleted > 0 ? ToonFeedbackKind.success : ToonFeedbackKind.info,
+    );
   }
 
   @override
