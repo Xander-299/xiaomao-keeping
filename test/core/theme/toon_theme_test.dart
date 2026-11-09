@@ -94,7 +94,7 @@ void main() {
   // 2026-10-29：主题色可切换（设置页五选一）—— 换 seed 必须真的换色板
   group('主题色（seed）', () {
     test('不同 seed 给出不同品牌色；饼图首瓣跟品牌色走', () {
-      final ToonPalette forest = ToonPalette.lightOf(ToonSeed.forest);
+      final ToonPalette forest = ToonPalette.lightOf(ToonSeed.amber);
       final ToonPalette amber = ToonPalette.lightOf(ToonSeed.amber);
       expect(forest.brand, isNot(amber.brand));
       expect(forest.pie.first, forest.brand);
@@ -118,9 +118,9 @@ void main() {
       );
     });
 
-    test('默认 light/dark 仍是森绿（不改老行为）', () {
-      expect(ToonPalette.light.brand, ToonPalette.lightOf(ToonSeed.forest).brand);
-      expect(ToonPalette.dark.brand, ToonPalette.darkOf(ToonSeed.forest).brand);
+    test('默认 light/dark 是琥珀（2026-11-10 改默认品牌色）', () {
+      expect(ToonPalette.light.brand, ToonPalette.lightOf(ToonSeed.amber).brand);
+      expect(ToonPalette.dark.brand, ToonPalette.darkOf(ToonSeed.amber).brand);
     });
   });
 }

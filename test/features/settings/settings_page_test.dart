@@ -66,7 +66,7 @@ Future<String?> pumpUntilSeedStored(WidgetTester tester, AppDatabase db) async {
 }
 
 void main() {
-  testWidgets('三行都在，默认选中「跟随系统」', (WidgetTester tester) async {
+  testWidgets('三行都在，默认选中「浅色」', (WidgetTester tester) async {
     final db = openTestDatabase();
     addTearDown(db.close);
     await pumpSettings(tester, db);
@@ -78,8 +78,8 @@ void main() {
     }
     // 只有一行有实心对勾 = 单选
     expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
-    expect(selectedMark(ToonThemeMode.system), findsOneWidget);
-    expect(selectedMark(ToonThemeMode.light), findsNothing);
+    expect(selectedMark(ToonThemeMode.light), findsOneWidget);
+    expect(selectedMark(ToonThemeMode.system), findsNothing);
     expect(selectedMark(ToonThemeMode.dark), findsNothing);
   });
 
@@ -92,7 +92,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(selectedMark(ToonThemeMode.dark), findsOneWidget);
-    expect(selectedMark(ToonThemeMode.system), findsNothing);
+    expect(selectedMark(ToonThemeMode.light), findsNothing);
 
     expect(await pumpUntilStored(tester, db), 'dark');
   });
@@ -104,11 +104,11 @@ void main() {
 
     await pumpSettings(tester, db);
     expect(selectedMark(ToonThemeMode.light), findsOneWidget);
-    expect(selectedMark(ToonThemeMode.system), findsNothing);
+    expect(selectedMark(ToonThemeMode.dark), findsNothing);
   });
 
   // 2026-10-29：主题色（seed）切换
-  testWidgets('主题色：五个色点都在，默认选中森绿；点琥珀 → 选中态 + 落库', (
+  testWidgets('主题色：五个色点都在，默认选中琥珀；点森绿 → 选中态 + 落库', (
     WidgetTester tester,
   ) async {
     final db = openTestDatabase();
@@ -119,16 +119,16 @@ void main() {
     for (final ToonSeed s in ToonSeed.values) {
       expect(find.byKey(seedKey(s)), findsOneWidget, reason: '缺色点：${s.label}');
     }
-    // 默认森绿：只有它带对勾
-    expect(find.descendant(of: find.byKey(seedKey(ToonSeed.forest)), matching: find.byIcon(Icons.check_rounded)), findsOneWidget);
-    expect(find.descendant(of: find.byKey(seedKey(ToonSeed.amber)), matching: find.byIcon(Icons.check_rounded)), findsNothing);
-
-    await tester.tap(find.byKey(seedKey(ToonSeed.amber)));
-    await tester.pumpAndSettle();
-
+    // 默认琥珀：只有它带对勾
     expect(find.descendant(of: find.byKey(seedKey(ToonSeed.amber)), matching: find.byIcon(Icons.check_rounded)), findsOneWidget);
     expect(find.descendant(of: find.byKey(seedKey(ToonSeed.forest)), matching: find.byIcon(Icons.check_rounded)), findsNothing);
 
-    expect(await pumpUntilSeedStored(tester, db), 'amber');
+    await tester.tap(find.byKey(seedKey(ToonSeed.forest)));
+    await tester.pumpAndSettle();
+
+    expect(find.descendant(of: find.byKey(seedKey(ToonSeed.forest)), matching: find.byIcon(Icons.check_rounded)), findsOneWidget);
+    expect(find.descendant(of: find.byKey(seedKey(ToonSeed.amber)), matching: find.byIcon(Icons.check_rounded)), findsNothing);
+
+    expect(await pumpUntilSeedStored(tester, db), 'forest');
   });
 }

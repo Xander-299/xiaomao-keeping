@@ -13,13 +13,13 @@ import 'package:yanxin/data/providers/database.dart';
 /// `schema_meta` 里存主题色的键。**不存在 = 森绿**（老用户不会被动换色）。
 const String kThemeSeedKey = 'theme_seed';
 
-/// 当前外观模式。**默认 `system`**：键不存在 / 读库失败 / 脏数据都回落跟随系统。
+/// 当前外观模式。**默认 `light`**：键不存在 / 读库失败 / 脏数据都回落浅色。
 final themeModeProvider =
     AsyncNotifierProvider<ThemeModeController, ToonThemeMode>(
       ThemeModeController.new,
     );
 
-/// 当前主题色。**默认 [ToonSeed.forest]**（= 换肤后的品牌色）。
+/// 当前主题色。**默认 [ToonSeed.amber]**（与启动图标橙底对齐）。
 final themeSeedProvider =
     AsyncNotifierProvider<ThemeSeedController, ToonSeed>(
       ThemeSeedController.new,
@@ -34,7 +34,7 @@ class ThemeSeedController extends AsyncNotifier<ToonSeed> {
           .get(kThemeSeedKey);
       return ToonSeed.parse(raw);
     } catch (_) {
-      return ToonSeed.forest;
+      return ToonSeed.amber;
     }
   }
 
@@ -60,8 +60,8 @@ class ThemeModeController extends AsyncNotifier<ToonThemeMode> {
           .get(kThemeModeKey);
       return ToonThemeMode.parse(raw);
     } catch (_) {
-      // 读库失败不能阻断启动：按默认「跟随系统」走
-      return ToonThemeMode.system;
+      // 读库失败不能阻断启动：按默认「浅色」走
+      return ToonThemeMode.light;
     }
   }
 

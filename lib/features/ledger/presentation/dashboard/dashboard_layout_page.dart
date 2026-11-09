@@ -1,4 +1,7 @@
-/// 「首页布局」设置页：显示/隐藏 + 拖拽排序。
+/// 「首页布局」设置页：模块树（展开/收起）+ 显示开关 + 拖拽排序。
+///
+/// 有内部组件的模块（如「本月预算 → 每天可花」）先折叠：点整行展开后
+/// 才看到二级开关；二级开关与文字都比一级小一号，视觉上呈现树层级。
 library;
 
 import 'dart:async';
@@ -50,14 +53,23 @@ class DashboardLayoutPage extends ConsumerWidget {
   }
 }
 
-class _LayoutList extends ConsumerWidget {
+class _LayoutList extends ConsumerStatefulWidget {
   const _LayoutList({required this.config});
 
   final DashboardConfig config;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_LayoutList> createState() => _LayoutListState();
+}
+
+class _LayoutListState extends ConsumerState<_LayoutList> {
+  /// 展开的模块 id（有内部组件的模块默认折叠）。
+  final Set<String> _expanded = <String>{};
+
+  @override
+  Widget build(BuildContext context) {
     final ToonPalette p = context.toon;
+    final DashboardConfig config = widget.config;
     final List<String> order = DashboardRegistry.effectiveOrderIds(config);
     final Set<String> enabled = DashboardRegistry.effectiveEnabledIds(config);
     final Map<String, DashboardModule> byId = <String, DashboardModule>{
@@ -70,7 +82,8 @@ class _LayoutList extends ConsumerWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
           child: Text(
-            '拖动手柄调整顺序；开关控制是否在首页显示。「本月收支」和「本月账单」为必选。',
+            '拖动手柄调整顺序；开关控制是否在首页显示。'
+            '带箭头的模块可展开控制内部组件；「本月收支」和「本月账单」为必选。',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
@@ -97,6 +110,8 @@ class _LayoutList extends ConsumerWidget {
               final DashboardModule? module = byId[id];
               if (module == null) return const SizedBox.shrink();
               final bool on = enabled.contains(id);
+              final bool hasChildren = module.childSpecs.isNotEmpty;
+              final bool expanded = _expanded.contains(id);
               return Padding(
                 key: ValueKey<String>('dashboard_module_$id'),
                 padding: const EdgeInsets.only(bottom: 8),
@@ -107,68 +122,98 @@ class _LayoutList extends ConsumerWidget {
                       horizontal: 10,
                       vertical: 6,
                     ),
-                    child: Row(
+                    child: Column(
                       children: <Widget>[
-                        ReorderableDragStartListener(
-                          index: index,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 8,
-                            ),
-                            child: Icon(
-                              Icons.drag_indicator_rounded,
-                              size: 20,
-                              color: p.ink3,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                module.title,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
+                        Row(
+                          children: <Widget>[
+                            ReorderableDragStartListener(
+                              index: index,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 8,
+                                ),
+                                child: Icon(
+                                  Icons.drag_indicator_rounded,
+                                  size: 20,
+                                  color: p.ink3,
                                 ),
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                module.canHide
-                                    ? module.description
-                                    : '${module.description} · 必选',
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w600,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    module.title,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    module.canHide
+                                        ? module.description
+                                        : '${module.description} · 必选',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: p.ink2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (hasChildren)
+                              IconButton(
+                                key: ValueKey<String>('dashboard_expand_$id'),
+                                visualDensity: VisualDensity.compact,
+                                icon: Icon(
+                                  expanded
+                                      ? Icons.expand_less_rounded
+                                      : Icons.expand_more_rounded,
+                                  size: 20,
                                   color: p.ink2,
                                 ),
+                                tooltip: expanded ? '收起' : '展开内部组件',
+                                onPressed: () => setState(() {
+                                  if (expanded) {
+                                    _expanded.remove(id);
+                                  } else {
+                                    _expanded.add(id);
+                                  }
+                                }),
+                              )
+                            else
+                              const SizedBox(width: 40),
+                            Switch(
+                              key: ValueKey<String>('dashboard_switch_$id'),
+                              value: on || !module.canHide,
+                              onChanged: module.canHide
+                                  ? (bool value) => unawaited(
+                                      ref
+                                          .read(
+                                            dashboardConfigProvider.notifier,
+                                          )
+                                          .setEnabled(id, value),
+                                    )
+                                  : null,
+                            ),
+                          ],
+                        ),
+                        // 展开的内部组件：小号文字 + 小号开关（树层级视觉）
+                        if (hasChildren && expanded && on)
+                          for (final DashboardParamSpec spec
+                              in module.childSpecs)
+                            _ChildToggle(
+                              key: ValueKey<String>(
+                                'dashboard_child_${id}_${spec.id}',
                               ),
-                              // 模块参数开关（P4）；关掉模块时一起变灰。
-                              if (module.paramSpecs.isNotEmpty && on)
-                                for (final DashboardParamSpec spec
-                                    in module.paramSpecs)
-                                  _ParamToggle(
-                                    moduleId: id,
-                                    spec: spec,
-                                    enabledIds: enabled,
-                                  ),
-                            ],
-                          ),
-                        ),
-                        Switch(
-                          key: ValueKey<String>('dashboard_switch_$id'),
-                          value: on || !module.canHide,
-                          onChanged: module.canHide
-                              ? (bool value) => unawaited(
-                                  ref
-                                      .read(dashboardConfigProvider.notifier)
-                                      .setEnabled(id, value),
-                                )
-                              : null,
-                        ),
+                              moduleId: id,
+                              spec: spec,
+                            ),
                       ],
                     ),
                   ),
@@ -182,13 +227,16 @@ class _LayoutList extends ConsumerWidget {
   }
 }
 
-/// 单个模块参数开关行。
-class _ParamToggle extends ConsumerWidget {
-  const _ParamToggle({required this.moduleId, required this.spec, required this.enabledIds});
+/// 二级开关行：比一级小一号（文字 11.5 / 开关缩小 40%），带树形缩进。
+class _ChildToggle extends ConsumerWidget {
+  const _ChildToggle({
+    super.key,
+    required this.moduleId,
+    required this.spec,
+  });
 
   final String moduleId;
   final DashboardParamSpec spec;
-  final Set<String> enabledIds;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -200,19 +248,22 @@ class _ParamToggle extends ConsumerWidget {
       spec,
     );
     return InkWell(
+      borderRadius: BorderRadius.circular(8),
       onTap: () => unawaited(
         ref
             .read(dashboardConfigProvider.notifier)
             .setParam(moduleId, spec.id, !value),
       ),
       child: Padding(
-        key: ValueKey<String>('dashboard_param_${moduleId}_${spec.id}'),
-        padding: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.only(left: 30, top: 2, bottom: 2, right: 4),
         child: Row(
           children: <Widget>[
+            Icon(
+              Icons.subdirectory_arrow_right_rounded,
+              size: 13,
+              color: p.ink3,
+            ),
             const SizedBox(width: 4),
-            Icon(Icons.tune_rounded, size: 13, color: p.ink3),
-            const SizedBox(width: 6),
             Expanded(
               child: Text(
                 spec.title,
@@ -225,12 +276,19 @@ class _ParamToggle extends ConsumerWidget {
             ),
             SizedBox(
               height: 26,
-              child: Switch(
-                value: value,
-                onChanged: (bool v) => unawaited(
-                  ref
-                      .read(dashboardConfigProvider.notifier)
-                      .setParam(moduleId, spec.id, v),
+              width: 38,
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: Switch(
+                  key: ValueKey<String>(
+                    'dashboard_param_${moduleId}_${spec.id}',
+                  ),
+                  value: value,
+                  onChanged: (bool v) => unawaited(
+                    ref
+                        .read(dashboardConfigProvider.notifier)
+                        .setParam(moduleId, spec.id, v),
+                  ),
                 ),
               ),
             ),

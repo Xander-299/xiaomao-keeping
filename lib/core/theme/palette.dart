@@ -191,7 +191,7 @@ class ToonPalette extends ThemeExtension<ToonPalette> {
   ///
   /// 这只是**默认**种子；用户可在「设置 → 主题色」里换（[ToonSeed]），
   /// 换完由 [lightOf] / [darkOf] 现算调色板。
-  static const Color seed = Color(0xFF2E5E4E);
+  static const Color seed = Color(0xFFFFB627);
 
   static final Map<ToonSeed, ToonPalette> _lightCache = <ToonSeed, ToonPalette>{};
   static final Map<ToonSeed, ToonPalette> _darkCache = <ToonSeed, ToonPalette>{};
@@ -216,8 +216,8 @@ class ToonPalette extends ThemeExtension<ToonPalette> {
   ///
   /// 为什么保留旧字段名：全仓 155 处 `context.toon`、432 处 `Toon*` 调用都按旧名取色；
   /// 换风格时改「色板怎么来」比改「谁在用」便宜得多。
-  static ToonPalette get light => lightOf(ToonSeed.forest);
-  static ToonPalette get dark => darkOf(ToonSeed.forest);
+  static ToonPalette get light => lightOf(ToonSeed.amber);
+  static ToonPalette get dark => darkOf(ToonSeed.amber);
 
   static ToonPalette _fromScheme(ColorScheme s) => ToonPalette(
     ink: s.onSurface,

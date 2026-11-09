@@ -17,7 +17,7 @@ import '../../helpers/test_database.dart';
 
 void main() {
   group('ThemeModeController', () {
-    test('默认 = 跟随系统，且**不写库**（老用户覆盖安装不被写死成浅色）', () async {
+    test('默认 = 浅色，且**不写库**（老用户覆盖安装不被写死）', () async {
       final db = openTestDatabase();
       addTearDown(db.close);
       final container = ProviderContainer(
@@ -25,7 +25,7 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      expect(await container.read(themeModeProvider.future), ToonThemeMode.system);
+      expect(await container.read(themeModeProvider.future), ToonThemeMode.light);
       expect(await AppMetaRepository(db).get(kThemeModeKey), isNull);
     });
 
@@ -63,7 +63,7 @@ void main() {
         overrides: [appDatabaseProvider.overrideWithValue(db)],
       );
       addTearDown(container.dispose);
-      expect(await container.read(themeModeProvider.future), ToonThemeMode.system);
+      expect(await container.read(themeModeProvider.future), ToonThemeMode.light);
     });
 
     test('读库失败 → 仍返回 system，不抛（外观是低风险偏好，不能阻断启动）', () async {
@@ -75,13 +75,13 @@ void main() {
         overrides: [appDatabaseProvider.overrideWithValue(db)],
       );
       addTearDown(container.dispose);
-      expect(await container.read(themeModeProvider.future), ToonThemeMode.system);
+      expect(await container.read(themeModeProvider.future), ToonThemeMode.light);
     });
   });
 
   // 2026-10-29：主题色（品牌 seed）
   group('ThemeSeedController', () {
-    test('默认 = 森绿，且不写库（老用户不会被动换色）', () async {
+    test('默认 = 琥珀，且不写库（老用户不会被动换色）', () async {
       final db = openTestDatabase();
       addTearDown(db.close);
       final container = ProviderContainer(
@@ -89,7 +89,7 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      expect(await container.read(themeSeedProvider.future), ToonSeed.forest);
+      expect(await container.read(themeSeedProvider.future), ToonSeed.amber);
       expect(await AppMetaRepository(db).get(kThemeSeedKey), isNull);
     });
 
@@ -113,7 +113,7 @@ void main() {
       expect(await cold.read(themeSeedProvider.future), ToonSeed.indigo);
     });
 
-    test('脏值 / 未知名字 → 回落森绿', () async {
+    test('脏值 / 未知名字 → 回落琥珀', () async {
       final db = openTestDatabase();
       addTearDown(db.close);
       await AppMetaRepository(db).set(kThemeSeedKey, 'neon-pink');
@@ -122,7 +122,7 @@ void main() {
         overrides: [appDatabaseProvider.overrideWithValue(db)],
       );
       addTearDown(container.dispose);
-      expect(await container.read(themeSeedProvider.future), ToonSeed.forest);
+      expect(await container.read(themeSeedProvider.future), ToonSeed.amber);
     });
   });
 }

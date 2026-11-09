@@ -25,6 +25,7 @@ import '../../../data/repositories/account_repository.dart';
 import '../../../data/repositories/category_repository.dart';
 import '../../ledger/application/ledger_controller.dart';
 import '../../stats/application/stats_controller.dart';
+import '../application/backup_restore.dart';
 import '../application/bill_importer.dart';
 import '../data/bill_normalize.dart';
 import '../data/bill_parse.dart';
@@ -51,6 +52,10 @@ class _ImportPageState extends ConsumerState<ImportPage> {
   List<bool> _cancelled = const [];
   String? _fileName;
 
+  // ── 备份文件（换机迁移）：命中即整体恢复，不走逐行预览 ──
+  bool _isBackup = false;
+  BackupRestoreReport? _backupReport;
+
   // ── 第 3 步（导入报告）的状态快照 ──
   ImportReport? _report;
   bool _hasNew = false;
@@ -58,7 +63,9 @@ class _ImportPageState extends ConsumerState<ImportPage> {
   ({int year, int month})? _target;
 
   /// 当前步骤：有报告 = 3，有解析结果 = 2，否则 1。由数据推导，不额外存状态。
-  int get _step => _report != null ? 3 : (_parsed != null ? 2 : 1);
+  int get _step => _report != null || _backupReport != null
+      ? 3
+      : (_parsed != null ? 2 : 1);
 
   void _resetToPick() {
     setState(() {
@@ -67,6 +74,8 @@ class _ImportPageState extends ConsumerState<ImportPage> {
       _fileName = null;
       _report = null;
       _target = null;
+      _isBackup = false;
+      _backupReport = null;
     });
   }
 
@@ -103,7 +112,13 @@ class _ImportPageState extends ConsumerState<ImportPage> {
         if (mounted) setState(() => _parsing = false);
         return; // 用户取消选择
       }
-      final parsed = parseBillFileAuto(bytes);
+      final ParseOutcome outcome = parseBillFileAuto(bytes);
+      if (outcome is BackupOutcome) {
+        // 备份文件：直接整体恢复（含账本/账户/分类/预算），成功后进报告步
+        await _restoreBackup(bytes, name);
+        return;
+      }
+      final BillParseResult parsed = (outcome as BillRowsOutcome).result;
       setState(() {
         _parsed = parsed;
         _cancelled = List<bool>.filled(parsed.rows.length, false);
@@ -127,6 +142,41 @@ class _ImportPageState extends ConsumerState<ImportPage> {
       setState(() => _parsing = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('读取文件失败：$e')),
+      );
+    }
+  }
+
+  /// 恢复小耄记账备份（JSON）。恢复进当前账本，指纹去重保证幂等。
+  Future<void> _restoreBackup(List<int> bytes, String? name) async {
+    try {
+      final db = ref.read(appDatabaseProvider);
+      final BackupRestoreReport report = await restoreBackupJson(
+        db,
+        bytes: bytes,
+        createBook: false,
+      );
+      // 恢复改变了首页 / 统计 / 资产数据，全部主动刷新
+      await ref.read(ledgerProvider.notifier).refresh();
+      unawaited(ref.read(statsProvider.notifier).refresh());
+      ref.read(dataEpochProvider.notifier).bump();
+      if (!mounted) return;
+      setState(() {
+        _parsing = false;
+        _isBackup = true;
+        _backupReport = report;
+        _fileName = name;
+      });
+    } on FormatException catch (e) {
+      if (!mounted) return;
+      setState(() => _parsing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _parsing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('备份恢复失败：$e')),
       );
     }
   }
@@ -393,6 +443,7 @@ class _ImportPageState extends ConsumerState<ImportPage> {
 
   Widget _buildReportBody(BuildContext context) {
     final ToonPalette p = context.toon;
+    if (_isBackup) return _buildBackupReportBody(context);
     final BillParseResult parsed = _parsed!;
     final ImportReport report = _report!;
     final bool hasNew = _hasNew;
@@ -576,4 +627,130 @@ class _ImportPageState extends ConsumerState<ImportPage> {
 
   String _fmtMonth(({int year, int month}) m) =>
       '${m.year}-${m.month.toString().padLeft(2, '0')}';
+}
+
+/// 备份恢复的报告页（第 3 步的备份分支）。
+extension _BackupReportUi on _ImportPageState {
+  Widget _buildBackupReportBody(BuildContext context) {
+    final ToonPalette p = context.toon;
+    final BackupRestoreReport r = _backupReport!;
+    final ({int year, int month})? target = r.latestMonth;
+    final List<Widget> kvs = <Widget>[
+      _Kv(label: '备份流水', value: '${r.dataRows}'),
+      _Kv(label: '本次恢复', value: '${r.imported}'),
+      if (r.duplicates > 0)
+        _Kv(label: '重复跳过（已有相同流水）', value: '${r.duplicates}'),
+      if (r.createdAccounts > 0) _Kv(label: '新建账户', value: '${r.createdAccounts}'),
+      if (r.createdCategories > 0)
+        _Kv(label: '新建分类', value: '${r.createdCategories}'),
+      if (r.budgetsRestored > 0)
+        _Kv(label: '恢复预算', value: '${r.budgetsRestored} 个月'),
+      _Kv(label: '账本', value: r.bookName ?? '当前账本'),
+    ];
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: ToonCard(
+            padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Container(
+                      width: 44,
+                      height: 44,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: r.imported > 0 ? p.greenTint : p.track,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: p.ink, width: 2),
+                        boxShadow: p.hard(d: 2),
+                      ),
+                      child: Icon(
+                        r.imported > 0
+                            ? Icons.check_rounded
+                            : Icons.inventory_2_outlined,
+                        size: 24,
+                        color: r.imported > 0 ? p.green : p.ink2,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        r.imported > 0 ? '备份恢复完成' : '备份没有新数据',
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                for (int i = 0; i < kvs.length; i++) ...<Widget>[
+                  if (i > 0) const ToonDashedLine(),
+                  kvs[i],
+                ],
+              ],
+            ),
+          ),
+        ),
+        if (target != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+            child: Text(
+              '点「去看账单」翻到 ${_fmtMonth(target)} 查看恢复的流水',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: p.ink2,
+                height: 1.7,
+              ),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Column(
+            children: <Widget>[
+              if (target != null) ...<Widget>[
+                ToonButton(
+                  block: true,
+                  label: '去看账单',
+                  onPressed: () async {
+                    await ref
+                        .read(ledgerProvider.notifier)
+                        .jumpToMonth(target.year, target.month);
+                    if (!mounted) return;
+                    if (context.mounted) context.go('/');
+                  },
+                ),
+                const SizedBox(height: 10),
+              ],
+              ToonButton(
+                block: true,
+                label: '再导入一个文件',
+                kind: ToonButtonKind.ghost,
+                onPressed: _resetToPick,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '重复恢复同一份备份不会产生重复流水',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: p.ink2,
+                  height: 1.7,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }

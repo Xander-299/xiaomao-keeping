@@ -188,6 +188,7 @@ Map<String, Object?> _categoryJson(Category c) => <String, Object?>{
   'bookId': c.bookId,
   'name': c.name,
   'kind': c.kind,
+  if (c.parentId != null) 'parentId': c.parentId,
   'icon': c.icon,
   'color': c.color,
   'sortOrder': c.sortOrder,

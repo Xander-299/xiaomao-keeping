@@ -21,10 +21,10 @@ void main() {
       expect(ToonThemeMode.parse('  Light  '), ToonThemeMode.light);
     });
 
-    test('键不存在 / 空串 / 脏数据 / 未来枚举一律回落 system，不抛错', () {
-      // 「不写库 = 跟随系统」是默认值的实现前提：老用户覆盖安装后自然跟随系统
+    test('键不存在 / 空串 / 脏数据 / 未来枚举一律回落 light，不抛错', () {
+      // 「不写库 = 浅色」是默认值的实现前提：老用户覆盖安装后自然浅色
       for (final String? raw in <String?>[null, '', '   ', 'black', 'amoled']) {
-        expect(ToonThemeMode.parse(raw), ToonThemeMode.system, reason: '$raw');
+        expect(ToonThemeMode.parse(raw), ToonThemeMode.light, reason: '$raw');
       }
     });
   });

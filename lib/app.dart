@@ -36,7 +36,9 @@ import 'package:yanxin/features/record/presentation/record_page.dart';
 import 'package:yanxin/features/reports/application/reports_controller.dart';
 import 'package:yanxin/features/reports/presentation/reports_page.dart';
 import 'package:yanxin/features/settings/application/theme_controller.dart';
+import 'package:yanxin/features/settings/presentation/appearance_page.dart';
 import 'package:yanxin/features/settings/presentation/settings_page.dart';
+import 'package:yanxin/features/settings/presentation/theme_color_page.dart';
 import 'package:yanxin/features/stats/presentation/stats_page.dart';
 
 /// 应用根。
@@ -119,6 +121,10 @@ class _YanxinAppState extends ConsumerState<YanxinApp> {
       GoRoute(path: '/autobook', builder: (_, _) => const AutoBookPage()),
       // 设置（F7.17）：外观 = 浅色 / 深色 / 跟随系统（默认跟随系统）
       GoRoute(path: '/settings', builder: (_, _) => const SettingsPage()),
+      // 外观模式子页（设置 → 主题色与外观 → 外观模式）
+      GoRoute(path: '/appearance', builder: (_, _) => const AppearancePage()),
+      // 主题色子页（设置 → 主题色与外观 → 主题色）
+      GoRoute(path: '/theme-color', builder: (_, _) => const ThemeColorPage()),
       // 首页布局（P3）：模块显示/隐藏 + 拖拽排序，入口在设置页
       GoRoute(
         path: '/dashboard-layout',
@@ -138,9 +144,9 @@ class _YanxinAppState extends ConsumerState<YanxinApp> {
   Widget build(BuildContext context) {
     // 还没读出来时按默认「跟随系统」渲染（首帧前 main() 已预热，正常不会走到这里）
     final ToonThemeMode mode =
-        ref.watch(themeModeProvider).value ?? ToonThemeMode.system;
+        ref.watch(themeModeProvider).value ?? ToonThemeMode.light;
     // 主题色（2026-10-29）：换 seed → 整套 M3 色板跟着换，页面代码一行不用动
-    final ToonSeed seed = ref.watch(themeSeedProvider).value ?? ToonSeed.forest;
+    final ToonSeed seed = ref.watch(themeSeedProvider).value ?? ToonSeed.amber;
     return MaterialApp.router(
       title: '小耄记账',
       theme: buildToonTheme(

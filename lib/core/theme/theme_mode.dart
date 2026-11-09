@@ -12,22 +12,22 @@ const String kThemeModeKey = 'theme_mode';
 ///
 /// 落库值就是这个枚举的 `name`（`light` / `dark` / `system`），便于人肉排查 KV 表。
 enum ToonThemeMode {
-  /// 跟随系统深浅色（默认）。
-  system,
-
-  /// 恒浅色。
+  /// 恒浅色（默认）。
   light,
 
   /// 恒深色。
-  dark;
+  dark,
 
-  /// 解析落库值：`light` / `dark` 之外的一切（含 null、空串、脏数据）都按 [system]。
+  /// 跟随系统深浅色。
+  system;
+
+  /// 解析落库值：`dark` / `system` 之外的一切（含 null、空串、脏数据）都按 [light]。
   ///
   /// 脏数据不抛错：手工改库 / 未来枚举增减都不该让 App 起不来。
   static ToonThemeMode parse(String? raw) => switch (raw?.trim().toLowerCase()) {
-    'light' => ToonThemeMode.light,
     'dark' => ToonThemeMode.dark,
-    _ => ToonThemeMode.system,
+    'system' => ToonThemeMode.system,
+    _ => ToonThemeMode.light,
   };
 
   /// 落库值（= 枚举名，见 [parse]）。
