@@ -6,6 +6,27 @@
 
 ---
 
+## 2026-11-09 · v0.8.3 发布：A+B+C + 三 ABI 包 + 发布闸门
+
+**交付**：PR #11（A1–A3 / B1+C1 / B2+C2 / P2-1，含 6 个 hunk 级拆分提交）→ tag **`v0.8.3`**（`2f2c6d6`）→
+Release 提供 arm64 / armv7 / x86_64 三个包（`--split-per-abi`，versionCode 4003/3003/6003）。
+
+**事故（值得记住）**：首包用 `--no-pub` + 手工 `.dart_tool` 在干净 worktree 里构建，
+缺 `.flutter-plugins-dependencies` → 插件注册表为空 → `sqlite3_flutter_libs` 未注册 →
+**装得上、签名对、能启动，但全站白屏**（`MissingPluginException`）。
+修复 = 先 `flutter pub get` 再 `flutter build apk`，并把「APK 内必须有 `libsqlite3.so`」等检查固化成
+`tool/release_preflight.py`（PR #14）。以后出包顺序：`pub get` → build → preflight → `install_device.ps1 -Smoke`。
+
+**其它**：
+- 设备上原有 0.7.16（versionCode **4001**），MIUI 连 `-d` 都拒绝降级 → 用户同意后卸载重装（数据未保留）。
+- 真机验收用 `screencap` + Windows OCR（`Windows.Media.Ocr`，zh-Hans-CN）逐词取坐标点击：
+  完成「记一笔 ¥12.34 → 保存 → 首页回显」。uiautomator 读不到 Flutter 语义（未开 TalkBack 时为空）。
+- 仓库改名 `Xander-299/xiaomao-keeping`，旧 GitHub URL 301、旧 Pages URL 404；README/网页下载入口改指三包。
+- 分支清理到只剩 `master`，仓库开启 **Automatically delete head branches**。
+- **本地工作区仍有 351 条未提交的 Design System v2 改动**（分支 `docs/product-quality-audit @ 42f43c1`，远端已删），未进 master。
+
+---
+
 ## 2026-10-25 · 阶段二任务 1：设备 × 模型基准表（只加工具与文档，零产品代码）
 
 > 用户拍板：**「先等我连手机，按 HANDOFF 出基准表」**；模型分发（D4）**等基准表出来再定**。
