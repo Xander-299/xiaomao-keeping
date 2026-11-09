@@ -16,7 +16,9 @@ import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/data/repositories/app_meta_repository.dart';
 import 'package:yanxin/features/settings/application/theme_controller.dart';
+import 'package:yanxin/features/settings/presentation/appearance_page.dart';
 import 'package:yanxin/features/settings/presentation/settings_page.dart';
+import 'package:yanxin/features/settings/presentation/theme_color_page.dart';
 
 import '../../helpers/test_database.dart';
 
@@ -38,6 +40,10 @@ Future<void> pumpSettings(WidgetTester tester, AppDatabase db) async {
       child: MaterialApp(
         theme: buildToonTheme(ToonPalette.light, Brightness.light),
         darkTheme: buildToonTheme(ToonPalette.dark, Brightness.dark),
+        routes: <String, WidgetBuilder>{
+          '/appearance': (_) => const AppearancePage(),
+          '/theme-color': (_) => const ThemeColorPage(),
+        },
         home: const SettingsPage(),
       ),
     ),
@@ -66,12 +72,16 @@ Future<String?> pumpUntilSeedStored(WidgetTester tester, AppDatabase db) async {
 }
 
 void main() {
-  testWidgets('三行都在，默认选中「浅色」', (WidgetTester tester) async {
+  testWidgets('外观模式子页：三行都在，默认选中「浅色」', (WidgetTester tester) async {
     final db = openTestDatabase();
     addTearDown(db.close);
     await pumpSettings(tester, db);
 
-    expect(find.text('外观'), findsOneWidget);
+    // 设置页只有入口卡片；三行单选在子页里
+    expect(find.text('主题色与外观'), findsOneWidget);
+    await tester.tap(find.text('外观模式'));
+    await tester.pumpAndSettle();
+
     for (final ToonThemeMode m in ToonThemeMode.values) {
       expect(find.byKey(rowKey(m)), findsOneWidget);
       expect(find.text(m.label), findsWidgets);
@@ -87,6 +97,8 @@ void main() {
     final db = openTestDatabase();
     addTearDown(db.close);
     await pumpSettings(tester, db);
+    await tester.tap(find.text('外观模式'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(rowKey(ToonThemeMode.dark)));
     await tester.pumpAndSettle();
@@ -97,23 +109,29 @@ void main() {
     expect(await pumpUntilStored(tester, db), 'dark');
   });
 
-  testWidgets('冷启动沿用上次选择：库里是 light 就选中浅色', (WidgetTester tester) async {
+  testWidgets('冷启动沿用上次选择：库里是 dark 就选中深色', (WidgetTester tester) async {
     final db = openTestDatabase();
     addTearDown(db.close);
-    await AppMetaRepository(db).set(kThemeModeKey, 'light');
+    await AppMetaRepository(db).set(kThemeModeKey, 'dark');
 
     await pumpSettings(tester, db);
-    expect(selectedMark(ToonThemeMode.light), findsOneWidget);
-    expect(selectedMark(ToonThemeMode.dark), findsNothing);
+    await tester.tap(find.text('外观模式'));
+    await tester.pumpAndSettle();
+    expect(selectedMark(ToonThemeMode.dark), findsOneWidget);
+    expect(selectedMark(ToonThemeMode.light), findsNothing);
   });
 
   // 2026-10-29：主题色（seed）切换
-  testWidgets('主题色：五个色点都在，默认选中琥珀；点森绿 → 选中态 + 落库', (
+  testWidgets('主题色子页：五个色点都在，默认选中琥珀；点森绿 → 选中态 + 落库', (
     WidgetTester tester,
   ) async {
     final db = openTestDatabase();
     addTearDown(db.close);
     await pumpSettings(tester, db);
+
+    // 设置页入口 → 主题色子页（设置页副标题也含「琥珀」文本，需用图标行进入）
+    await tester.tap(find.text('主题色').first);
+    await tester.pumpAndSettle();
 
     expect(find.text('主题色'), findsOneWidget);
     for (final ToonSeed s in ToonSeed.values) {
