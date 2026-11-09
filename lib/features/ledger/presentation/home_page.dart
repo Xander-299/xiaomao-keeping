@@ -25,6 +25,8 @@ import 'package:yanxin/features/stats/application/stats_controller.dart';
 import 'package:yanxin/ui_kit/app_page_state.dart';
 
 import '../application/ledger_controller.dart';
+import 'dashboard/dashboard_config.dart';
+import 'dashboard/dashboard_config_controller.dart';
 import 'dashboard/dashboard_module.dart';
 import 'dashboard/dashboard_view.dart';
 import 'widgets/tx_delete_dialog.dart';
@@ -40,6 +42,8 @@ class HomePage extends ConsumerWidget {
     final categoriesAsync = ref.watch(categoriesProvider);
 
     final nameOf = _categoryNameResolver(categoriesAsync.value);
+    final DashboardConfig dashboardConfig =
+        ref.watch(dashboardConfigProvider).value ?? DashboardConfig.defaults;
 
     return SafeArea(
       bottom: false,
@@ -56,6 +60,7 @@ class HomePage extends ConsumerWidget {
                   AppPageError(error: e),
               data: (LedgerState state) => DashboardView(
                 state: state,
+                config: dashboardConfig,
                 deps: DashboardDeps(
                   categoryNameOf: nameOf,
                   onEdit: (TxRow tx) =>

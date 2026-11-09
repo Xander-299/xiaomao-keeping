@@ -27,6 +27,7 @@ import 'package:yanxin/features/calendar/presentation/month_picker_page.dart';
 import 'package:yanxin/features/category/presentation/category_manage_page.dart';
 import 'package:yanxin/features/chat/presentation/chat_page.dart';
 import 'package:yanxin/features/import/presentation/import_page.dart';
+import 'package:yanxin/features/ledger/presentation/dashboard/dashboard_layout_page.dart';
 import 'package:yanxin/features/ledger/presentation/home_page.dart';
 import 'package:yanxin/features/nav/presentation/app_shell.dart';
 import 'package:yanxin/features/onboarding/presentation/onboarding_page.dart';
@@ -118,6 +119,11 @@ class _YanxinAppState extends ConsumerState<YanxinApp> {
       GoRoute(path: '/autobook', builder: (_, _) => const AutoBookPage()),
       // 设置（F7.17）：外观 = 浅色 / 深色 / 跟随系统（默认跟随系统）
       GoRoute(path: '/settings', builder: (_, _) => const SettingsPage()),
+      // 首页布局（P3）：模块显示/隐藏 + 拖拽排序，入口在设置页
+      GoRoute(
+        path: '/dashboard-layout',
+        builder: (_, _) => const DashboardLayoutPage(),
+      ),
       // 记一笔 / 问一句（2026-10-28 改版）：文字问账本 + 发账单截图，合并成一条聊天流。
       // 旧的 `/assistant`（问账本）与 `/receipt`（截图记账）已并入这里，入口从首页进来。
       GoRoute(

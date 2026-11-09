@@ -18,6 +18,15 @@ class TxListModule extends DashboardModule {
   String get id => 'tx_list';
 
   @override
+  String get title => '本月账单';
+
+  @override
+  String get description => '按天分组显示本月流水';
+
+  @override
+  bool get canHide => false;
+
+  @override
   int get order => 40;
 
   @override

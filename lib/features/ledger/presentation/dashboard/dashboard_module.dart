@@ -32,7 +32,16 @@ abstract class DashboardModule {
 
   String get id;
 
+  /// 设置页显示名。
+  String get title;
+
+  /// 设置页说明。
+  String get description;
+
   int get order;
+
+  /// 是否允许用户隐藏；核心模块（本月收支 / 本月账单）为 false。
+  bool get canHide => true;
 
   double get spacingBefore => 0;
 

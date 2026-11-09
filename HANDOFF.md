@@ -29,7 +29,7 @@
 | 仓库 | 改名 `Xander-299/xiaomao-keeping`，Pages → <https://xander-299.github.io/xiaomao-keeping/>；README/网页下载入口改指 v0.8.3 三包 |
 | 分支 | 已清理到只剩 `master`；仓库设置开启 **Automatically delete head branches** |
 
-### 本轮交付（2026-11-09 · P1 UI Kit + P2 首页模块化）
+### 本轮交付（2026-11-09 · P1 UI Kit + P2 首页模块化 + P3 用户配置）
 
 > 基于 `master` 新分支 `refactor/ui-kit-dashboard`：只抽公共组件与首页模块，不改业务数据流。
 > SPEC：[`docs/spec/SPEC-refactor-ui-kit-dashboard.md`](docs/spec/SPEC-refactor-ui-kit-dashboard.md)。
@@ -38,10 +38,11 @@
 |---|---|
 | P1 UI Kit | 新增 `lib/ui_kit/`：`AppPageLoading` / `AppPageError`、`AppSheetHeader`、`AppSettingsTile`；迁移 9 处页面加载/错误态、3 个 BottomSheet 头部、我的页 6 个入口 |
 | P2 首页模块 | 新增 `dashboard/{dashboard_module,dashboard_config,dashboard_registry,dashboard_view}.dart` + 5 个 modules；默认顺序/间距与旧首页一致 |
+| P3 用户配置 | `DashboardConfigController` 读写 `schema_meta.dashboard_config`（JSON，零迁移）；设置 → 首页布局：开关 + 拖拽排序 + 恢复默认；`month_hero` / `tx_list` 必选 |
 | 解耦 | 模块只依赖 `DashboardDeps`（分类解析 / 编辑 / 删除 / 翻月），`HomePage` 只保留 header、加载/错误态、删除恢复 |
 | 视觉 | P1 零视觉变化（字号/间距/颜色沿用原值）；P2 首屏顺序与间距不变 |
-| 测试 | 新增 `dashboard_registry_test` / `ui_kit_test`；`dart analyze lib test` 0 issue；本机 Flutter 测试受沙箱写缓存限制未跑 |
-| 未做 | P3：模块显示/隐藏、拖拽排序、配置持久化与设置页 |
+| 测试 | 新增 `dashboard_registry_test`（含配置 JSON / sanitize / 排序）/ `ui_kit_test`；`dart analyze lib test` 0 issue；本机 Flutter 测试受沙箱写缓存限制未跑 |
+| 未做 | P4：单模块参数、导航项自定义、云同步 |
 
 > ⚠️ **当前工作区**：本地分支 `docs/product-quality-audit @ 42f43c1`（远端分支已删）里还有 **351 条未提交改动**，
 > 属 Design System v2 的剩余工作（`app_shell` FAB、页面级 `Tok` 令牌化、`toon/states.dart` 接入、DS 测试与 Golden）。

@@ -15,6 +15,12 @@ class BudgetStripModule extends DashboardModule {
   String get id => 'budget_strip';
 
   @override
+  String get title => '本月预算';
+
+  @override
+  String get description => '预算进度与剩余额度';
+
+  @override
   int get order => 20;
 
   @override

@@ -15,6 +15,12 @@ class ChatEntryModule extends DashboardModule {
   String get id => 'chat_entry';
 
   @override
+  String get title => '记一笔 / 问一句';
+
+  @override
+  String get description => '聊天式记账和问账本入口';
+
+  @override
   int get order => 30;
 
   @override

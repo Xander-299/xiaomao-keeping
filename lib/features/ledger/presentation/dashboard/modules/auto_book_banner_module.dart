@@ -15,6 +15,12 @@ class AutoBookBannerModule extends DashboardModule {
   String get id => 'autobook_banner';
 
   @override
+  String get title => '自动记账提示';
+
+  @override
+  String get description => '有需要确认的自动入账时显示';
+
+  @override
   int get order => 0;
 
   @override

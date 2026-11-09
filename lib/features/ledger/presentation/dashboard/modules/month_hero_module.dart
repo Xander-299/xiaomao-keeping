@@ -15,6 +15,15 @@ class MonthHeroModule extends DashboardModule {
   String get id => 'month_hero';
 
   @override
+  String get title => '本月收支';
+
+  @override
+  String get description => '月度收入 / 支出 / 结余与翻月';
+
+  @override
+  bool get canHide => false;
+
+  @override
   int get order => 10;
 
   @override

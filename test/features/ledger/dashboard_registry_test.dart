@@ -42,4 +42,47 @@ void main() {
     expect(spacing['chat_entry'], 20);
     expect(spacing['tx_list'], 20);
   });
+
+  test('orderIds 覆盖默认排序', () {
+    final List<String> ids = DashboardRegistry.resolve(
+      const DashboardConfig(
+        orderIds: <String>[
+          'tx_list',
+          'month_hero',
+          'budget_strip',
+          'chat_entry',
+          'autobook_banner',
+        ],
+      ),
+    ).map((m) => m.id).toList();
+
+    expect(ids.first, 'tx_list');
+    expect(ids[1], 'month_hero');
+  });
+
+  test('sanitize 丢弃未知 id、补齐缺失模块、强制核心模块', () {
+    final DashboardConfig cleaned = DashboardRegistry.sanitize(
+      const DashboardConfig(
+        enabledIds: <String>{'bogus'},
+        orderIds: <String>['tx_list', 'bogus'],
+      ),
+    );
+
+    expect(cleaned.enabledIds, containsAll(<String>['month_hero', 'tx_list']));
+    expect(cleaned.enabledIds, isNot(contains('bogus')));
+    expect(cleaned.orderIds!.first, 'tx_list');
+    expect(cleaned.orderIds, hasLength(DashboardRegistry.modules.length));
+    expect(cleaned.orderIds, isNot(contains('bogus')));
+  });
+
+  test('配置 JSON 往返', () {
+    const DashboardConfig config = DashboardConfig(
+      enabledIds: <String>{'month_hero', 'tx_list'},
+      orderIds: <String>['tx_list', 'month_hero'],
+    );
+    final DashboardConfig back = DashboardConfig.fromJson(config.toJson());
+
+    expect(back.enabledIds, <String>{'month_hero', 'tx_list'});
+    expect(back.orderIds, <String>['tx_list', 'month_hero']);
+  });
 }

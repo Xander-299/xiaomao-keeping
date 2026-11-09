@@ -1,7 +1,7 @@
-# SPEC — UI Kit 收敛 + 首页模块化（P1/P2）
+# SPEC — UI Kit 收敛 + 首页模块化（P1/P2/P3）
 
 > 目标：让新增页面/区块优先复用公共组件，并让首页由可排序、可隐藏的模块组成。
-> P1/P2 只做基础能力，P3 再做用户配置持久化与设置页。
+> P1 抽组件，P2 拆模块，P3 接用户配置（显示/隐藏 + 排序 + 持久化）。
 
 ## P1 — UI Kit（零视觉变化）
 
@@ -46,14 +46,23 @@ modules/                  autobook / month_hero / budget / chat_entry / tx_list
 
 - 模块返回 sliver 列表；`DashboardView` 负责插间距；
 - 模块只依赖 `DashboardDeps`（分类解析 / 编辑 / 删除 / 翻月），不 import `HomePage` 私有方法；
-- P2 不接用户配置 UI，也不落库；`DashboardConfig` 只是内存模型；
 - `HomePage` 只保留 header、加载/错误态和删除恢复逻辑。
 
-## 非目标（P3+）
+## P3 — 用户配置
 
-- 模块拖拽排序 / 显示隐藏设置页；
-- 配置持久化与 schema 迁移；
-- 快捷操作、统计卡片类型、导航项自定义。
+- `dashboard_config_controller.dart`：读写 `schema_meta.dashboard_config`（JSON，零 schema 迁移）；
+  - 读库失败 / 脏数据 → 回落默认全量；
+  - 保存先更新 UI 再写库，写失败本次会话仍生效；
+- `dashboard_layout_page.dart`：`ReorderableListView` 拖拽排序 + Switch 显示/隐藏 + 「恢复默认」；
+- 入口：设置 → 首页 → 首页布局（`/dashboard-layout`）；
+- 必选模块：`month_hero`、`tx_list`（`canHide = false`），开关锁定为开；
+- `DashboardRegistry.sanitize` 丢弃未知 id、补齐缺失模块、强制必选模块启用。
+
+## 非目标（P4+）
+
+- 每个模块自己的参数（预算显示方式、图表类型、快捷操作）；
+- 导航项顺序 / 自定义 tab；
+- 云同步首页布局。
 
 ## 验证
 

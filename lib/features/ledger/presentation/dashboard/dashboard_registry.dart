@@ -1,4 +1,4 @@
-/// 首页模块注册表：默认顺序在这里维护，页面只消费 resolve 的结果。
+/// 首页模块注册表：默认顺序与用户配置解析。
 library;
 
 import 'dashboard_config.dart';
@@ -21,14 +21,57 @@ class DashboardRegistry {
     TxListModule(),
   ];
 
-  /// 按配置过滤后，再按 [DashboardModule.order] 排序。
+  static List<String> get defaultOrderIds {
+    final List<DashboardModule> sorted = <DashboardModule>[...modules]
+      ..sort((a, b) => a.order.compareTo(b.order));
+    return sorted.map((m) => m.id).toList();
+  }
+
+  static Set<String> get allIds =>
+      modules.map((m) => m.id).toSet();
+
+  static Set<String> effectiveEnabledIds(DashboardConfig config) =>
+      config.enabledIds ?? allIds;
+
+  static List<String> effectiveOrderIds(DashboardConfig config) =>
+      config.orderIds ?? defaultOrderIds;
+
+  /// 清洗脏数据：丢弃未知 id、补齐缺失模块、强制核心模块启用。
+  static DashboardConfig sanitize(DashboardConfig config) {
+    final Set<String> known = allIds;
+    final Set<String> enabled = <String>{
+      ...(config.enabledIds ?? known),
+    }..removeWhere((String id) => !known.contains(id));
+    for (final DashboardModule m in modules) {
+      if (!m.canHide) enabled.add(m.id);
+    }
+
+    final List<String> order = <String>[];
+    for (final String id in effectiveOrderIds(config)) {
+      if (known.contains(id) && !order.contains(id)) order.add(id);
+    }
+    for (final String id in defaultOrderIds) {
+      if (!order.contains(id)) order.add(id);
+    }
+    return DashboardConfig(enabledIds: enabled, orderIds: order);
+  }
+
+  /// 按配置过滤 + 排序。
   static List<DashboardModule> resolve(DashboardConfig config) {
+    final Set<String> enabled = effectiveEnabledIds(config);
+    final List<String> order = effectiveOrderIds(config);
+    final Map<String, int> position = <String, int>{
+      for (int i = 0; i < order.length; i++) order[i]: i,
+    };
+
     final List<DashboardModule> result = modules
-        .where(config.isEnabled)
+        .where((m) => enabled.contains(m.id))
         .toList();
-    result.sort(
-      (DashboardModule a, DashboardModule b) => a.order.compareTo(b.order),
-    );
+    result.sort((a, b) {
+      final int ai = position[a.id] ?? 1 << 20;
+      final int bi = position[b.id] ?? 1 << 20;
+      return ai.compareTo(bi);
+    });
     return result;
   }
 }

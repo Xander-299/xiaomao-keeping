@@ -6,12 +6,14 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:yanxin/core/theme/theme_mode.dart';
 import 'package:yanxin/core/theme/theme_seed.dart';
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/features/settings/application/theme_controller.dart';
+import 'package:yanxin/ui_kit/app_settings_tile.dart';
 
 /// 设置。
 class SettingsPage extends ConsumerWidget {
@@ -84,6 +86,20 @@ class SettingsPage extends ConsumerWidget {
                 fontWeight: FontWeight.w600,
                 color: p.ink2,
                 height: 1.7,
+              ),
+            ),
+          ),
+          const ToonSectionTitle(title: '首页'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+            child: ToonCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              clip: true,
+              child: AppSettingsTile(
+                icon: Icons.dashboard_customize_rounded,
+                title: '首页布局',
+                subtitle: '显示 / 隐藏与排序首页模块',
+                onTap: () => context.push('/dashboard-layout'),
               ),
             ),
           ),
