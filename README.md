@@ -11,8 +11,8 @@
 [![Offline](https://img.shields.io/badge/%E6%95%B0%E6%8D%AE-100%25%20%E6%9C%AC%E5%9C%B0-FFB627)](#-数据边界)
 [![Tests](https://img.shields.io/badge/tests-740%20passed%20%C2%B7%20CI%20%E5%85%A8%E7%BB%BF-2FC98A)](#-质量门禁)
 
-[**🌐 网页版介绍**](https://xander-299.github.io/yanxin-keeping/) ·
-[**⬇ 下载 APK**](https://github.com/Xander-299/yanxin-keeping/releases/latest) ·
+[**🌐 网页版介绍**](https://xander-299.github.io/xiaomao-keeping/) ·
+[**⬇ 下载 APK**](https://github.com/Xander-299/xiaomao-keeping/releases/latest) ·
 [**🚀 从源码构建**](#-从源码构建) ·
 [**📖 文档索引**](#-文档索引)
 
@@ -69,8 +69,8 @@
 
 > ⚠️ 未上架任何应用商店。系统提示「未知来源」时，允许**当前这个文件管理器**安装即可。
 
-[apk-universal]: https://github.com/Xander-299/yanxin-keeping/releases/download/v0.8.2/yanxin-v0.8.2-universal-release.apk
-[releases]: https://github.com/Xander-299/yanxin-keeping/releases
+[apk-universal]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.2/yanxin-v0.8.2-universal-release.apk
+[releases]: https://github.com/Xander-299/xiaomao-keeping/releases
 
 ---
 
@@ -213,8 +213,8 @@ presentation（UI）→ application（Controller / 纯函数）→ data（仓储
 **环境**：Flutter 3.47.2（Dart 3.13.2）· JDK 17 · Android SDK（platform 36 + build-tools 36）· Git。
 
 ```bash
-git clone git@github.com:Xander-299/yanxin-keeping.git
-cd yanxin-keeping
+git clone git@github.com:Xander-299/xiaomao-keeping.git
+cd xiaomao-keeping
 
 cp env.example.sh env.sh     # 按本机填 SDK 路径（env.sh 不入库）
 source env.sh

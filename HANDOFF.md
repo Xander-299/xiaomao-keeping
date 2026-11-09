@@ -15,7 +15,7 @@
 | 技术栈 | Flutter 3.47.2 / Dart 3.13.2 · drift 2.31.0 · Riverpod 3 · go_router 18 · **Material 3 主题（2026-10-28 换肤，seed = 森绿 `0xFF2E5E4E`，同日由琥珀改定）** · **ML Kit 文字识别（中文 bundled，离线）** · 本地 LLM 探针 = **llama.cpp `b7050`**（仅 `tool/llm_bench/`，**未进 App**） |
 | 数据库 | schema **v4**（v2 加 `budgets`；v3 加 `accounts.icon/color`；**v4 加 `categories.parent_id / is_archived`**，F7.18 分类树）—— v4 迁移**只加列 + 加索引**，老库升级零数据改动（真机验证：154 笔账单分毫未动）。**预置二级分类不需要迁移**（是数据不是结构） |
 | 门禁 | 本地 = `flutter analyze` + `flutter test --concurrency=1`（**740 passed / 6 skipped**）；CI = `.github/workflows/ci.yml`，**三个并行 job**：① `analyze · 生成物同步`（跑 build_runner 后 `git diff lib/**/*.g.dart` 必须为空）② `test` ③ `build apk (debug)`（`--target-platform android-arm64`）。**分支保护需在 GitHub 设置里手动勾这三个 check**，说明写在 workflow 头部注释；本机跑测试**必须** `--concurrency=1`（内存不足会 OOM），CI 上用默认并发 |
-| 仓库 | **GitHub `Xander-299/yanxin-keeping`（public）** · Pages <https://xander-299.github.io/yanxin-keeping/> · 规则集 `check-ci`：required checks = `analyze · 生成物同步` / `test` / `build apk (debug)`，approvals 0，禁 force-push / 禁删默认分支（**直推 master 会被挡，必须走 PR**；管理员可 bypass） |
+| 仓库 | **GitHub `Xander-299/xiaomao-keeping`（public，2026-11-09 由 `yanxin-keeping` 改名）** · Pages <https://xander-299.github.io/xiaomao-keeping/> · 规则集 `check-ci`：required checks = `analyze · 生成物同步` / `test` / `build apk (debug)`，approvals 0，禁 force-push / 禁删默认分支（**直推 master 会被挡，必须走 PR**；管理员可 bypass） |
 
 ### 本轮交付（2026-10-30 · 发布 v0.8.2：新名 + 新图标真正进包）
 
