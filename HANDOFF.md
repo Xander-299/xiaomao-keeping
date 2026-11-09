@@ -10,12 +10,28 @@
 
 | 项 | 值 |
 |---|---|
-| 交付状态 | F1–F7.17 + **F8.1 阶段一「端上截图记账」全部交付**，最新 tag **`v0.8.2`**（真机走查 7 项全过，[验收报告](docs/acceptance-F8.1-receipt.md)）。**v0.8.2 = 改名「小耄记账」+ 橙底小猫图标首次进正式包**（同时收进 v0.8.1 之后一直未发版的 F7.18 分类树 / 预置二级 / 主题色 / 日历分段 / 问答聊天化）。阶段二：**任务 1 基准表已实测**（[报告](docs/dev/llm-benchmark.md)）+ **M1「问账本」+ 首页聊天化已交付并真机走查通过**（`/chat` 统一「记一笔 / 问一句」；`/assistant` 与 `/receipt` 已并入；MuMu + 真实微信账单 161 行） |
-| 下一步 | ~~M2 本地模型~~ **⏸ 已搁置（2026-10-28 用户裁定）**。**v0.8.2 已发布（2026-10-30）** —— 新名/新图标已在正式包里。其它候选（待拍板）：分类相关的 4 项遗留、导入分类规则扩容（39 → 80+ 条）、FR-BUDGET-10 分类级预算、帧率采集（adb 两条路都测不到 Flutter SurfaceView，需 DevTools 或 integration_test） |
+| 交付状态 | F1–F7.17 + **F8.1 阶段一「端上截图记账」全部交付**，最新 tag **`v0.8.3`**（2026-11-09 · A+B+C 数据一致性 + 三 ABI 包，[验收记录](docs/acceptance-v0.8.3.md)）。F8.1 真机走查 7 项全过（[验收报告](docs/acceptance-F8.1-receipt.md)）。**v0.8.2 = 改名「小耄记账」+ 橙底小猫图标首次进正式包**（同时收进 v0.8.1 之后一直未发版的 F7.18 分类树 / 预置二级 / 主题色 / 日历分段 / 问答聊天化）。阶段二：**任务 1 基准表已实测**（[报告](docs/dev/llm-benchmark.md)）+ **M1「问账本」+ 首页聊天化已交付并真机走查通过**（`/chat` 统一「记一笔 / 问一句」；`/assistant` 与 `/receipt` 已并入；MuMu + 真实微信账单 161 行） |
+| 下一步 | ~~M2 本地模型~~ **⏸ 已搁置（2026-10-28 用户裁定）**。**v0.8.3 已发布（2026-11-09，三个 ABI 包）**。最近的待办：① **本地工作区还有 351 条未提交的 Design System v2 改动**（见下方「⚠️ 当前工作区」）② `docs/handoff/open-issues.md` 里 5 个 P3 未修 ③ 旧 Pages 地址 `…/yanxin-keeping/` 仍是 404（如需可建同名空仓库放跳转页）。更早的候选：分类 4 项遗留、导入规则扩容、FR-BUDGET-10 分类级预算、帧率采集 |
 | 技术栈 | Flutter 3.47.2 / Dart 3.13.2 · drift 2.31.0 · Riverpod 3 · go_router 18 · **Material 3 主题（2026-10-28 换肤，seed = 森绿 `0xFF2E5E4E`，同日由琥珀改定）** · **ML Kit 文字识别（中文 bundled，离线）** · 本地 LLM 探针 = **llama.cpp `b7050`**（仅 `tool/llm_bench/`，**未进 App**） |
-| 数据库 | schema **v4**（v2 加 `budgets`；v3 加 `accounts.icon/color`；**v4 加 `categories.parent_id / is_archived`**，F7.18 分类树）—— v4 迁移**只加列 + 加索引**，老库升级零数据改动（真机验证：154 笔账单分毫未动）。**预置二级分类不需要迁移**（是数据不是结构） |
-| 门禁 | 本地 = `flutter analyze` + `flutter test --concurrency=1`（**740 passed / 6 skipped**）；CI = `.github/workflows/ci.yml`，**三个并行 job**：① `analyze · 生成物同步`（跑 build_runner 后 `git diff lib/**/*.g.dart` 必须为空）② `test` ③ `build apk (debug)`（`--target-platform android-arm64`）。**分支保护需在 GitHub 设置里手动勾这三个 check**，说明写在 workflow 头部注释；本机跑测试**必须** `--concurrency=1`（内存不足会 OOM），CI 上用默认并发 |
-| 仓库 | **GitHub `Xander-299/xiaomao-keeping`（public，2026-11-09 由 `yanxin-keeping` 改名）** · Pages <https://xander-299.github.io/xiaomao-keeping/> · 规则集 `check-ci`：required checks = `analyze · 生成物同步` / `test` / `build apk (debug)`，approvals 0，禁 force-push / 禁删默认分支（**直推 master 会被挡，必须走 PR**；管理员可 bypass） |
+| 数据库 | schema **v5**（v2 加 `budgets`；v3 加 `accounts.icon/color`；v4 加 `categories.parent_id / is_archived`；**v5 把流水指纹唯一性从全局改为 `(book_id, fingerprint)`**，A1）。v4→v5 **只替换索引**，不重建表、不改既有行。**预置二级分类不需要迁移**（是数据不是结构） |
+| 门禁 | 本地 = `flutter analyze` + `flutter test --concurrency=1`（**784 passed / 6 skipped**，HEAD `3b9f73f` 实测）；CI = `.github/workflows/ci.yml`，**四个并行 job**：① `analyze · 生成物同步` ② `test` ③ `build apk (debug)` ④ **`release · 插件与版本物检`**（release 构建后跑 `tool/release_preflight.py`，见下）。本机 `flutter analyze` 在这台 WSL 上会假死，用 `dart analyze lib test` 或 CI 代替；跑测试**必须** `--concurrency=1`（内存不足 OOM） |
+| 仓库 | **GitHub `Xander-299/xiaomao-keeping`（public，2026-11-09 由 `yanxin-keeping` 改名）** · Pages <https://xander-299.github.io/xiaomao-keeping/> · 规则集 `check-ci`：required checks = `analyze · 生成物同步` / `test` / `build apk (debug)` / `release · 插件与版本物检`（最后一项需在 Settings 里手动勾），approvals 0，禁 force-push / 禁删默认分支（**直推 master 会被挡，必须走 PR**；管理员可 bypass） |
+
+### 本轮交付（2026-11-09 · v0.8.3：A+B+C 数据一致性 + 发布闸门 + 三 ABI 包）
+
+| 事项 | 结果 |
+|---|---|
+| A+B+C | A1 指纹按账本（schema v5）· A2 恢复前引用校验 · A3 批量撤销单事务 · B1/C1 日历竞态与 refresh 合并 · B2/C2 写失败统一反馈（**保留删除二次确认**）· P2-1 分类编辑原子性。PR #11 / #12 |
+| 发布 | tag **`v0.8.3`** → `2f2c6d6`；Release 提供 **三个 ABI 包**：`arm64-v8a`（38.8 MB）/ `armeabi-v7a`（33.4 MB）/ `x86_64`（40.4 MB），同一 upload key；versionCode 因 `--split-per-abi` 为 4003 / 3003 / 6003 |
+| 发布闸门 | 新增 `tool/release_preflight.py`（APK 内 `libsqlite3.so` / 插件清单 / 版本 / 签名）+ `install_device.ps1 -Smoke`（装完抓 `MissingPluginException` 与崩溃）+ CI job `release · 插件与版本物检`。PR #14 |
+| 事故与修复 | v0.8.3 **首包全站白屏**：用 `--no-pub` 在无 `.flutter-plugins-dependencies` 的 worktree 里构建 → 插件注册表为空 → `sqlite3_flutter_libs` 未注册。重建后替换资产；复盘写进 [`docs/acceptance-v0.8.3.md`](docs/acceptance-v0.8.3.md) |
+| 验收 | 真机（Redmi K50 / Android 14）：安装、冷启动、首页、记一笔、分类弹层、保存回显（¥12.34）、0 崩溃；**UI 文案靠 OCR 取证，逐 tab 断言与视觉细节未覆盖**；Golden 全程未验收 |
+| 仓库 | 改名 `Xander-299/xiaomao-keeping`，Pages → <https://xander-299.github.io/xiaomao-keeping/>；README/网页下载入口改指 v0.8.3 三包 |
+| 分支 | 已清理到只剩 `master`；仓库设置开启 **Automatically delete head branches** |
+
+> ⚠️ **当前工作区**：本地分支 `docs/product-quality-audit @ 42f43c1`（远端分支已删）里还有 **351 条未提交改动**，
+> 属 Design System v2 的剩余工作（`app_shell` FAB、页面级 `Tok` 令牌化、`toon/states.dart` 接入、DS 测试与 Golden）。
+> 它**不属于** v0.8.3，也**没有**进 master；下一轮要么单独整理成 PR，要么继续搁置 —— 别当成「已交付」。
 
 ### 本轮交付（2026-10-30 · 发布 v0.8.2：新名 + 新图标真正进包）
 
