@@ -28,6 +28,7 @@ import 'package:yanxin/features/ledger/presentation/widgets/tx_delete_dialog.dar
 import 'package:yanxin/features/ledger/presentation/widgets/tx_group_list.dart';
 import 'package:yanxin/features/shared/write_failure.dart';
 import 'package:yanxin/features/stats/application/stats_controller.dart';
+import 'package:yanxin/ui_kit/app_page_state.dart';
 
 import '../application/search_controller.dart';
 import '../application/search_history.dart';
@@ -263,9 +264,9 @@ class _SearchOverlayState extends ConsumerState<SearchOverlay> {
                   child: async.when(
                     skipLoadingOnReload: true,
                     loading: () =>
-                        const Center(child: CircularProgressIndicator()),
+                        const AppPageLoading(),
                     error: (Object e, StackTrace _) =>
-                        Center(child: Text('加载失败：$e')),
+                        AppPageError(error: e),
                     data: (SearchState state) =>
                         _buildResults(state, plan, _range),
                   ),

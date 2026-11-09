@@ -18,6 +18,7 @@ import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/core/utils/money.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
+import 'package:yanxin/ui_kit/app_page_state.dart';
 
 import '../application/report_aggregate.dart';
 import '../application/reports_controller.dart';
@@ -58,8 +59,8 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
         ],
       ),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (Object e, StackTrace _) => Center(child: Text('加载失败：$e')),
+        loading: () => const AppPageLoading(),
+        error: (Object e, StackTrace _) => AppPageError(error: e),
         data: (ReportsState data) => Column(
           children: <Widget>[
             Padding(

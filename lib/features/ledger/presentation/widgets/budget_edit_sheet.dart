@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/core/utils/money.dart';
+import 'package:yanxin/ui_kit/app_sheet_header.dart';
 
 import '../../application/budget_controller.dart';
 import '../../application/budget_metrics.dart';
@@ -191,33 +192,9 @@ class _BudgetEditSheetState extends ConsumerState<_BudgetEditSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              // 抓手
-              Center(
-                child: Container(
-                  width: 46,
-                  height: 6,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: p.ink,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              Text(
-                '设置 ${ym.year}年${ym.month}月 预算',
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '用于在首页看到本月花销进度与剩余额度',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: p.ink2,
-                ),
+              AppSheetHeader(
+                title: '设置 ${ym.year}年${ym.month}月 预算',
+                subtitle: '用于在首页看到本月花销进度与剩余额度',
               ),
               const SizedBox(height: 16),
               // ¥ 输入框（原型：墨色描边圆角 + 大号数字）
