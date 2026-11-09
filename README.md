@@ -61,15 +61,20 @@
 
 | 版本 | 适用设备 | 大小 | 下载 |
 |---|---|---|---|
-| **通用包**（arm64 + armv7） | 主流安卓手机（**不含 x86 模拟器**） | 66 MB | [下载][apk-universal] |
+| **arm64-v8a**（推荐） | 主流安卓手机（绝大多数） | 38.8 MB | [下载][apk-arm64] |
+| **armeabi-v7a** | 32 位 ARM 老机型 | 33.4 MB | [下载][apk-armv7] |
+| **x86_64** | 模拟器 / Intel 设备 | 40.4 MB | [下载][apk-x64] |
 
-- 版本 **0.8.2**（改名「小耄记账」+ 新图标 · 分类树 · 日历 · 主题色）
-  · 最低 **Android 7.0** · 正式签名（`CN=yanxin`）· release 页见 [Releases][releases]
+- 版本 **0.8.3**（A+B+C 数据一致性 + 分类编辑原子性；三包同版本、同一把正式签名 `CN=yanxin`）
+  · 最低 **Android 7.0** · 全部包见 [Releases][releases]
+- 按手机架构选一个即可：不确定就选 **arm64-v8a**（近五年的手机都是它）
 - 装好后首次会弹 7 页新手引导；卸载即彻底删除数据（无云端），想留档请先「我的 → 数据导出」
 
 > ⚠️ 未上架任何应用商店。系统提示「未知来源」时，允许**当前这个文件管理器**安装即可。
 
-[apk-universal]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.2/yanxin-v0.8.2-universal-release.apk
+[apk-arm64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.3/yanxin-v0.8.3-arm64-v8a-release.apk
+[apk-armv7]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.3/yanxin-v0.8.3-armeabi-v7a-release.apk
+[apk-x64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.3/yanxin-v0.8.3-x86_64-release.apk
 [releases]: https://github.com/Xander-299/xiaomao-keeping/releases
 
 ---
