@@ -12,6 +12,8 @@ import 'package:yanxin/core/theme/theme_mode.dart';
 import 'package:yanxin/core/theme/theme_seed.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/features/settings/application/theme_controller.dart';
+import 'package:yanxin/features/settings/presentation/appearance_page.dart';
+import 'package:yanxin/features/settings/presentation/theme_color_page.dart';
 import 'package:yanxin/ui_kit/app_settings_tile.dart';
 
 /// 设置。
@@ -44,7 +46,9 @@ class SettingsPage extends ConsumerWidget {
                 icon: Icons.palette_rounded,
                 title: '外观模式',
                 subtitle: mode.label,
-                onTap: () => context.push('/appearance'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const AppearancePage()),
+                ),
               ),
             ),
           ),
@@ -57,7 +61,9 @@ class SettingsPage extends ConsumerWidget {
                 icon: Icons.colorize_rounded,
                 title: '主题色',
                 subtitle: seed.label,
-                onTap: () => context.push('/theme-color'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const ThemeColorPage()),
+                ),
               ),
             ),
           ),

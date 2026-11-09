@@ -16,9 +16,7 @@ import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/data/repositories/app_meta_repository.dart';
 import 'package:yanxin/features/settings/application/theme_controller.dart';
-import 'package:yanxin/features/settings/presentation/appearance_page.dart';
 import 'package:yanxin/features/settings/presentation/settings_page.dart';
-import 'package:yanxin/features/settings/presentation/theme_color_page.dart';
 
 import '../../helpers/test_database.dart';
 
@@ -40,10 +38,6 @@ Future<void> pumpSettings(WidgetTester tester, AppDatabase db) async {
       child: MaterialApp(
         theme: buildToonTheme(ToonPalette.light, Brightness.light),
         darkTheme: buildToonTheme(ToonPalette.dark, Brightness.dark),
-        routes: <String, WidgetBuilder>{
-          '/appearance': (_) => const AppearancePage(),
-          '/theme-color': (_) => const ThemeColorPage(),
-        },
         home: const SettingsPage(),
       ),
     ),
