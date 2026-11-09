@@ -10,6 +10,7 @@ import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/core/utils/money.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
 import 'package:yanxin/features/ledger/application/month_summary.dart';
+import 'package:yanxin/ui_kit/app_page_state.dart';
 
 import '../application/stats_aggregate.dart';
 import '../application/stats_controller.dart';
@@ -31,8 +32,8 @@ class StatsPage extends ConsumerWidget {
       // 让「月份 × 图表」整体换得柔和一点；key 只看年月，切「支出/收入」不触发换页动画。
       body: state == null
           ? (async.hasError
-                ? Center(child: Text('加载失败：${async.error}'))
-                : const Center(child: CircularProgressIndicator()))
+                ? AppPageError(error: async.error ?? '未知错误')
+                : const AppPageLoading())
           : AnimatedSwitcher(
               duration: const Duration(milliseconds: 200),
               child: _StatsBody(

@@ -29,6 +29,7 @@ import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/data/providers/book_providers.dart';
 import 'package:yanxin/data/providers/category_providers.dart';
 import 'package:yanxin/features/shared/write_failure.dart';
+import 'package:yanxin/ui_kit/app_page_state.dart';
 
 import '../application/category_actions.dart';
 import 'widgets/category_editor.dart';
@@ -70,8 +71,8 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
           //（两者功能完全重复，2026-10-29 用户要求只留悬浮按钮）。
           appBar: AppBar(title: const Text('分类管理')),
           body: async.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (Object e, StackTrace _) => Center(child: Text('加载失败：$e')),
+            loading: () => const AppPageLoading(),
+            error: (Object e, StackTrace _) => AppPageError(error: e),
             data: (List<Category> all) => Column(
               children: <Widget>[
                 Padding(

@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/core/utils/money.dart';
+import 'package:yanxin/ui_kit/app_page_state.dart';
 
 import '../application/account_meta.dart';
 import '../application/asset_aggregate.dart';
@@ -38,7 +39,7 @@ class AssetsPage extends ConsumerWidget {
         ],
       ),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const AppPageLoading(),
         error: (Object e, StackTrace _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(24),

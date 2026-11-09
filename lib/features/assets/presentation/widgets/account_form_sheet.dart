@@ -14,6 +14,7 @@ import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/core/utils/money.dart';
+import 'package:yanxin/ui_kit/app_sheet_header.dart';
 
 import '../../application/account_meta.dart';
 import '../../application/asset_aggregate.dart';
@@ -259,33 +260,9 @@ class _AccountFormSheetState extends ConsumerState<_AccountFormSheet> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                // 抓手
-                Center(
-                  child: Container(
-                    width: 46,
-                    height: 6,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: p.ink,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-                Text(
-                  _isEdit ? '编辑账户' : '新增账户',
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '初始余额不允许负数；有流水的账户不可删除',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: p.ink2,
-                  ),
+                AppSheetHeader(
+                  title: _isEdit ? '编辑账户' : '新增账户',
+                  subtitle: '初始余额不允许负数；有流水的账户不可删除',
                 ),
                 const SizedBox(height: 16),
 

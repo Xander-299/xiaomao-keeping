@@ -18,6 +18,7 @@ import 'package:yanxin/data/providers/account_providers.dart';
 import 'package:yanxin/data/providers/book_providers.dart';
 import 'package:yanxin/data/providers/category_providers.dart';
 import 'package:yanxin/data/providers/database.dart';
+import 'package:yanxin/ui_kit/app_sheet_header.dart';
 
 import '../application/csv_export.dart';
 
@@ -183,30 +184,10 @@ class _ExportSheetState extends ConsumerState<_ExportSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            // 抓手
-            Center(
-              child: Container(
-                width: 46,
-                height: 6,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: p.ink,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-            ),
-            const Text(
-              '数据导出',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '导出的是当前账本，只读、不改动任何数据。',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: p.ink2,
-              ),
+            const AppSheetHeader(
+              title: '数据导出',
+              subtitle: '导出的是当前账本，只读、不改动任何数据。',
+              subtitleGap: 4,
             ),
             const SizedBox(height: 12),
             Container(

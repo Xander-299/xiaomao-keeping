@@ -10,6 +10,7 @@ import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/data/providers/book_providers.dart';
+import 'package:yanxin/ui_kit/app_page_state.dart';
 
 /// 账本抽屉。
 class BookDrawer extends ConsumerWidget {
@@ -40,8 +41,8 @@ class BookDrawer extends ConsumerWidget {
             ),
             Expanded(
               child: booksAsync.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (Object e, StackTrace _) => Center(child: Text('加载失败：$e')),
+                loading: () => const AppPageLoading(),
+                error: (Object e, StackTrace _) => AppPageError(error: e),
                 data: (List<Book> books) => ListView(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   children: <Widget>[

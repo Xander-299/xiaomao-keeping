@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:yanxin/ui_kit/app_page_state.dart';
 
 import '../../../core/platform/media_picker.dart';
 import '../../../core/providers/data_epoch.dart';
@@ -196,7 +197,7 @@ class _ImportPageState extends ConsumerState<ImportPage> {
         leading: BackButton(onPressed: _back),
       ),
       body: _parsing
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppPageLoading()
           : Column(
               children: <Widget>[
                 _StepBar(step: _step),

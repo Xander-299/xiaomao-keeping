@@ -16,27 +16,20 @@ import 'package:yanxin/core/utils/money.dart';
 import 'package:yanxin/data/providers/book_providers.dart';
 import 'package:yanxin/data/providers/category_providers.dart';
 import 'package:yanxin/data/repositories/transaction_repository.dart';
-import 'package:yanxin/features/autobook/presentation/widgets/auto_book_banner.dart';
 import 'package:yanxin/features/calendar/application/calendar_controller.dart';
-import 'package:yanxin/features/chat/presentation/widgets/chat_entry_card.dart';
 import 'package:yanxin/features/ledger/presentation/tx_restore_message.dart';
 import 'package:yanxin/features/reports/application/reports_controller.dart';
 import 'package:yanxin/features/search/presentation/search_overlay.dart';
 import 'package:yanxin/features/shared/write_failure.dart';
 import 'package:yanxin/features/stats/application/stats_controller.dart';
+import 'package:yanxin/ui_kit/app_page_state.dart';
 
 import '../application/ledger_controller.dart';
-import 'widgets/budget_strip.dart';
-import 'widgets/month_hero.dart';
+import 'dashboard/dashboard_config.dart';
+import 'dashboard/dashboard_config_controller.dart';
+import 'dashboard/dashboard_module.dart';
+import 'dashboard/dashboard_view.dart';
 import 'widgets/tx_delete_dialog.dart';
-import 'widgets/tx_group_list.dart';
-
-/// 首页竖向节奏（dp）—— 改首屏呼吸感只动这三个数，别在子组件里各写一份 margin。
-///
-/// hero 卡片带 4px 硬阴影，会在视觉上吃掉半格缝，所以「hero ↔ 预算条」给到 24（实测视觉缝 ≈17dp）。
-const double kHomeGapHeroToStrip = 24;
-const double kHomeGapStripToEntry = 20;
-const double kHomeGapEntryToSection = 20;
 
 /// 首页。
 class HomePage extends ConsumerWidget {
@@ -49,6 +42,8 @@ class HomePage extends ConsumerWidget {
     final categoriesAsync = ref.watch(categoriesProvider);
 
     final nameOf = _categoryNameResolver(categoriesAsync.value);
+    final DashboardConfig dashboardConfig =
+        ref.watch(dashboardConfigProvider).value ?? DashboardConfig.defaults;
 
     return SafeArea(
       bottom: false,
@@ -60,53 +55,24 @@ class HomePage extends ConsumerWidget {
               // 翻月 / 写后刷新不再切 loading（controller 侧已改），这里再加一道保险：
               // 即使状态短暂回到 loading，也继续画旧数据，不闪转圈。
               skipLoadingOnReload: true,
-              loading: () => const Center(child: CircularProgressIndicator()),
+              loading: () => const AppPageLoading(),
               error: (Object e, StackTrace _) =>
-                  Center(child: Text('加载失败：$e')),
-              data: (LedgerState state) => CustomScrollView(
-                slivers: <Widget>[
-                  // 自动记账提示条（F7.15）：无待提示批次时零高度，不占位
-                  const SliverToBoxAdapter(child: AutoBookBanner()),
-                  SliverToBoxAdapter(
-                    child: MonthHero(
-                      year: state.year,
-                      month: state.month,
-                      summary: state.summary,
-                      canNext: canGoNext(state.year, state.month),
-                      onPrevMonth: () =>
-                          ref.read(ledgerProvider.notifier).shiftMonth(-1),
-                      onNextMonth: () =>
-                          ref.read(ledgerProvider.notifier).shiftMonth(1),
-                    ),
-                  ),
-                  // 预算降级成一行（腾出首屏给「记一笔 / 问一句」入口；2026-10-28 改版）
-                  // 竖向节奏：hero →(24) 预算条 →(20) 入口卡 →(20) 本月账单
-                  const SliverToBoxAdapter(child: SizedBox(height: kHomeGapHeroToStrip)),
-                  const SliverToBoxAdapter(child: BudgetStrip()),
-                  const SliverToBoxAdapter(child: SizedBox(height: kHomeGapStripToEntry)),
-                  const SliverToBoxAdapter(child: ChatEntryCard()),
-                  const SliverToBoxAdapter(child: SizedBox(height: kHomeGapEntryToSection)),
-                  const SliverToBoxAdapter(child: _SectionHeader()),
-                  if (state.items.isEmpty)
-                    SliverToBoxAdapter(
-                      child: _EmptyMonth(
-                        year: state.year,
-                        month: state.month,
-                      ),
-                    )
-                  else
-                    SliverToBoxAdapter(
-                      child: TxGroupList(
-                        items: state.items,
-                        categoryNameOf: nameOf,
-                        shrinkWrap: true,
-                        onEdit: (TxRow tx) =>
-                            context.push('/record', extra: tx.id),
-                        onDelete: (TxRow tx) => _confirmDelete(context, ref, tx),
-                      ),
-                    ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
-                ],
+                  AppPageError(error: e),
+              data: (LedgerState state) => DashboardView(
+                state: state,
+                config: dashboardConfig,
+                deps: DashboardDeps(
+                  categoryNameOf: nameOf,
+                  onEdit: (TxRow tx) =>
+                      context.push('/record', extra: tx.id),
+                  onDelete: (TxRow tx) =>
+                      _confirmDelete(context, ref, tx),
+                  onPrevMonth: () =>
+                      ref.read(ledgerProvider.notifier).shiftMonth(-1),
+                  onNextMonth: () =>
+                      ref.read(ledgerProvider.notifier).shiftMonth(1),
+                  params: dashboardConfig.params,
+                ),
               ),
             ),
           ),
@@ -238,103 +204,6 @@ class _Header extends StatelessWidget {
             tooltip: '统计',
             boxed: true,
             onPressed: () => context.push('/stats'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 「本月账单」区头 + 全部账单入口（→ 报表页「明细」档，文案不变）。
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    final ToonPalette p = context.toon;
-    return ToonSectionTitle(
-      title: '本月账单',
-      trailing: ToonPress(
-        dx: 2,
-        dy: 2,
-        onTap: () => context.push(
-          '/reports',
-          extra: const ReportsArgs(tab: kReportTabDetail),
-        ),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: p.paper,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: p.ink, width: 2),
-            boxShadow: p.hard(d: 2.5),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Text(
-                '全部账单',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
-              ),
-              Icon(Icons.chevron_right, size: 15, color: p.ink),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 空态：必须「不用滚动就能看到」。
-///
-/// 首页 hero + 预算卡已占满首屏（横屏/大屏尤其明显），因此这里走紧凑单行，
-/// 而不是大图标居中块 —— 大块空态会被挤到折叠下方，用户只看到「本月账单」下一片空白。
-class _EmptyMonth extends StatelessWidget {
-  const _EmptyMonth({required this.year, required this.month});
-
-  final int year;
-  final int month;
-
-  @override
-  Widget build(BuildContext context) {
-    final ToonPalette p = context.toon;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 6, 16, 16),
-      child: Row(
-        children: <Widget>[
-          Icon(Icons.receipt_long_rounded, size: 22, color: p.ink),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  '$year年$month月还没有记账',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '已有微信 / 支付宝账单？到「我的 → 导入账单」一键导入',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: p.ink2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          TextButton.icon(
-            onPressed: () => context.push('/record'),
-            icon: const Icon(Icons.add, size: 15),
-            label: const Text('记一笔'),
-            style: TextButton.styleFrom(
-              foregroundColor: p.brandDeep,
-              textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
           ),
         ],
       ),
