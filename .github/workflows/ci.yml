@@ -6,8 +6,11 @@ name: CI
 #   test   : flutter test（CI 上允许默认并发；**本机**必须 --concurrency=1，见 HANDOFF）
 #   build  : flutter build apk --debug —— 证明「能打包」，analyze/test 证明不了 Gradle /
 #            Manifest / Kotlin / ML Kit 依赖链没坏
+#   release: flutter build apk --release + tool/release_preflight.py —— 证明 **release 包里
+#            真的带着插件与 native 库**（v0.8.3 首包就是「装得上但插件没注册 → 全站白屏」，
+#            debug 包与本地 --no-pub 构建都测不出来）
 #
-# 三个 job 并行跑：一个有红都能单独定位，不用等前面的跑完。
+# 四个 job 并行跑：一个有红都能单独定位，不用等前面的跑完。
 #
 # ── 为什么没有「格式门禁」─────────────────────────────────────────────────
 # `dart format --set-exit-if-changed` 现在会报 149/223 个文件要改（历史代码没按 formatter
@@ -20,7 +23,7 @@ name: CI
 #
 # ── 分支保护（手动步骤，仓库设置里点一次即可）──────────────────────────────
 # Settings → Branches → Require status checks：勾 `analyze · 生成物同步` / `test` /
-# `build apk (debug)`；再勾 Require a pull request before merging。
+# `build apk (debug)` / `release · 插件与版本物检`；再勾 Require a pull request before merging。
 # ⚠️ 一旦勾了 required checks，就**不要**给本 workflow 加 paths-ignore —— 纯文档 PR 会因为
 #    检查永远不报告而卡死（GitHub 的经典坑）。
 
@@ -158,3 +161,55 @@ jobs:
       # 这样这一跳能稳在 10 分钟内。
       - name: Build debug APK
         run: flutter build apk --debug --no-pub --target-platform android-arm64
+
+  release:
+    name: release · 插件与版本物检
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Ensure Android SDK 36 + CMake
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+            "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" > /dev/null
+          else
+            echo "::warning::找不到 sdkmanager，跳过补装（依赖 runner 预装）"
+          fi
+
+      - name: Lower Gradle heap for runner
+        run: sed -i 's/-Xmx8G -XX:MaxMetaspaceSize=4G/-Xmx3G -XX:MaxMetaspaceSize=1G/' android/gradle.properties
+
+      # 这里**故意不写 --no-pub**：本 job 要验证的正是「pub get 之后出包、插件清单在」。
+      - name: Build release APK (arm64)
+        run: flutter build apk --release --target-platform android-arm64
+
+      # CI 没有 keystore（key.properties 不入库），release 会退化成 debug 签名，
+      # 所以跳过指纹比对；本地出正式包时不要加 --skip-signature。
+      - name: Release preflight
+        run: |
+          python3 tool/release_preflight.py \
+            --apk build/app/outputs/flutter-apk/app-release.apk \
+            --skip-signature

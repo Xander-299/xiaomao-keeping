@@ -36,6 +36,12 @@
 .PARAMETER SkipVerify
   跳过签名 / 文案核验（只在你自己已经核过时用）。
 
+.PARAMETER Smoke
+  装完启动后做一次冒烟：清空 logcat → 拉起 App → 抓 `logcat -s flutter` 与 crash 缓冲，
+  出现 `MissingPluginException` / Dart 未捕获异常 / FATAL 直接判失败。
+  2026-11-09 v0.8.3 首包就是「装得上、签名对、但插件没注册 → 全站白屏」，
+  发布前请带上这个开关。
+
 .EXAMPLE
   # 模拟器日常走查（debug + 并列包名）
   .\tool\install_device.ps1
@@ -64,6 +70,7 @@ param(
   [switch]$NoBuild,
   [switch]$SkipVerify,
   [switch]$NoLaunch,
+  [switch]$Smoke,
   [string]$Adb = 'D:\Download\Java\Android\platform-tools\adb.exe',
   [string]$Flutter = 'D:\Download\Flutter\flutter\bin\flutter.bat',
   [string]$BuildTools = 'D:\Download\Java\Android\build-tools\36.0.0',
@@ -314,6 +321,7 @@ Write-Ok '安装成功'
 # ─────────────────────────── 4. 启动 ───────────────────────────
 if (-not $NoLaunch) {
   Write-Step "启动 $pkg"
+  if ($Smoke) { & $Adb -s $Serial logcat -c 2>&1 | Out-Null }
   & $Adb -s $Serial shell am force-stop $pkg 2>&1 | Out-Null
   Start-Sleep -Milliseconds 500
   & $Adb -s $Serial shell monkey -p $pkg -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
@@ -324,6 +332,28 @@ if (-not $NoLaunch) {
   }
   else {
     Write-Note "没确认到前台 Activity，手动点一下图标看看（logcat：adb -s $Serial logcat -d -t 200）"
+  }
+
+  if ($Smoke) {
+    Write-Step '启动冒烟（插件 / 崩溃）'
+    Start-Sleep -Seconds 3
+    $flutterLog = (& $Adb -s $Serial logcat -d -s flutter 2>&1 | Out-String)
+    $crashLog = (& $Adb -s $Serial logcat -b crash -d -t 200 2>&1 | Out-String)
+    $problems = @()
+    if ($flutterLog -match 'MissingPluginException') {
+      $problems += 'MissingPluginException —— 插件没注册（多半是构建时缺 .flutter-plugins-dependencies，先跑 flutter pub get 再出包）'
+    }
+    if ($flutterLog -match 'E/flutter|Unhandled Exception') {
+      $problems += 'Dart 未捕获异常（见 adb logcat -s flutter）'
+    }
+    if ($crashLog -match 'FATAL EXCEPTION') {
+      $problems += 'crash 缓冲有 FATAL EXCEPTION（见 adb logcat -b crash）'
+    }
+    if ($problems.Count -gt 0) {
+      $tail = ($flutterLog -split "`r?`n" | Select-Object -Last 15) -join "`n"
+      Fail ("启动冒烟失败：`n  - " + ($problems -join "`n  - ") + "`n最近 flutter 日志：`n$tail")
+    }
+    Write-Ok '启动冒烟通过：无插件缺失 / 无未捕获异常 / 无 FATAL'
   }
 }
 
