@@ -132,16 +132,33 @@ def check_zip(apk: Path, report: Report) -> None:
     if not abi_dirs:
         report.fail("APK 里没有任何 lib/<abi>/ 目录 —— 这不是一个可用的 Flutter 包")
         return
-    report.ok(f"包含 ABI：{', '.join(abi_dirs)}")
 
-    for abi in abi_dirs:
-        present = {Path(n).name for n in names if n.startswith(f"lib/{abi}/")}
+    # 用 --target-platform 只打一个 ABI 时，插件仍可能往别的 ABI 目录塞少量 .so
+    # （例如 jni / sqlite 的预编译库）。真正的「出包 ABI」= 带 libflutter.so 的那几个。
+    def libs_of(abi: str) -> set[str]:
+        return {Path(n).name for n in names if n.startswith(f"lib/{abi}/")}
+
+    flutter_abis = [abi for abi in abi_dirs if "libflutter.so" in libs_of(abi)]
+    if not flutter_abis:
+        report.fail(
+            "没有任何 ABI 带 libflutter.so —— 这不是一个可运行的 Flutter 包"
+            f"（现有目录：{', '.join(abi_dirs)}）"
+        )
+        return
+    report.ok(f"出包 ABI：{', '.join(flutter_abis)}")
+
+    ignored = [abi for abi in abi_dirs if abi not in flutter_abis]
+    if ignored:
+        report.warn(
+            f"{', '.join(ignored)} 只有插件库、没有 Flutter 引擎（大概率是 --target-platform 裁剪），不计入检查"
+        )
+
+    for abi in flutter_abis:
+        present = libs_of(abi)
         missing = [lib for lib in REQUIRED_LIBS if lib not in present]
         if missing:
-            report.fail(
-                f"{abi} 缺少 {', '.join(missing)} —— "
-                "libsqlite3.so 缺失会导致装上去能启动但所有页面白屏"
-            )
+            hint = "（libsqlite3.so 缺失 = 装得上但所有页面白屏）" if "libsqlite3.so" in missing else ""
+            report.fail(f"{abi} 缺少 {', '.join(missing)}{hint}")
         else:
             report.ok(f"{abi} 三个核心库齐全（含 libsqlite3.so）")
 
