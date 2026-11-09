@@ -222,11 +222,26 @@ def check_version(apk: Path, project: Path, aapt: str | None, report: Report) ->
 
     pkg, code, name = m.group(1), m.group(2), m.group(3)
     exp_name, exp_code = expected
-    if name != exp_name or (exp_code and code != exp_code):
-        report.fail(
-            f"包内版本 {name}+{code} 与 pubspec 的 {exp_name}+{exp_code} 不一致"
+    if name != exp_name:
+        report.fail(f"包内 versionName {name} 与 pubspec 的 {exp_name} 不一致")
+        return
+
+    if exp_code and code != exp_code:
+        # `flutter build apk --split-per-abi` 会按 ABI 给 versionCode 加偏移
+        # （armv7 +1000 / arm64 +2000 / x64 +4000），这是 Flutter 的既定规则，
+        # 不是版本没对齐 —— 只有「偏移量不在约定集合里」才算错。
+        delta = int(code) - int(exp_code)
+        if delta not in (0, 1000, 2000, 4000):
+            report.fail(
+                f"包内 versionCode {code} 与 pubspec 的 {exp_code} 不一致"
+                f"（差值 {delta} 不在 split-per-abi 的约定偏移里）"
+            )
+            return
+        report.ok(
+            f"包内版本一致：{pkg} {name}+{code}（split-per-abi 偏移 +{delta}）"
         )
         return
+
     report.ok(f"包内版本一致：{pkg} {name}+{code}")
 
 
