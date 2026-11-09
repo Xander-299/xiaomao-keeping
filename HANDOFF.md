@@ -29,6 +29,21 @@
 | 仓库 | 改名 `Xander-299/xiaomao-keeping`，Pages → <https://xander-299.github.io/xiaomao-keeping/>；README/网页下载入口改指 v0.8.3 三包 |
 | 分支 | 已清理到只剩 `master`；仓库设置开启 **Automatically delete head branches** |
 
+### 本轮交付（2026-11-09/10 · 组件化 P1–P4 合入 master，PR #19）
+
+> 「组件可复用、页面可拼装、用户可自定义」地基已进 master。SPEC：
+> [`docs/spec/SPEC-refactor-ui-kit-dashboard.md`](docs/spec/SPEC-refactor-ui-kit-dashboard.md)。
+
+| 项 | 结果 |
+|---|---|
+| 合入 | PR **#19**（merge commit `62e01bb`），CI 四闸门全绿（analyze 1m52s / test 2m14s / build apk 2m37s / release preflight 3m34s），分支已删 |
+| P1 UI Kit | `lib/ui_kit/`：`AppPageLoading` / `AppPageError` / `AppSheetHeader` / `AppSettingsTile`；9 处页面状态、3 个弹层头部、我的页 6 入口已迁移，零视觉变化 |
+| P2 首页模块化 | `dashboard/` 注册表 + 5 个模块（autobook / month_hero / budget / chat_entry / tx_list），默认顺序/间距 = 旧首页 |
+| P3 用户配置 | `schema_meta.dashboard_config`（JSON，零迁移）；设置 → 首页布局：开关 + 拖拽排序 + 恢复默认；`month_hero` / `tx_list` 必选 |
+| P4 模块参数 | `DashboardParamSpec`（bool，缺键 = 默认值）；已落 `budget_strip.show_daily` / `chat_entry.show_samples`；**真机踩坑**：`sanitize()` 曾丢 `params` 导致参数写不进库，已修 + 回归测试 |
+| 真机验证 | Redmi K50：隐藏预算/示例问题即时生效、重启持久化、恢复默认回归，全部通过 |
+| P5 候选 | 非布尔参数（枚举/数值）、导航项自定义、云同步布局 |
+
 ### 本轮交付（2026-11-09 · P1 UI Kit + P2 首页模块化 + P3 用户配置 + P4 模块参数）
 
 > 基于 `master` 新分支 `refactor/ui-kit-dashboard`：只抽公共组件与首页模块，不改业务数据流。
