@@ -1,0 +1,45 @@
+/// 首页 Dashboard 注册表：默认顺序、配置过滤、模块间距。
+library;
+
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:yanxin/features/ledger/presentation/dashboard/dashboard_config.dart';
+import 'package:yanxin/features/ledger/presentation/dashboard/dashboard_registry.dart';
+
+void main() {
+  test('默认模块顺序 = 当前首页视觉顺序', () {
+    final List<String> ids = DashboardRegistry.resolve(
+      DashboardConfig.defaults,
+    ).map((m) => m.id).toList();
+
+    expect(ids, <String>[
+      'autobook_banner',
+      'month_hero',
+      'budget_strip',
+      'chat_entry',
+      'tx_list',
+    ]);
+  });
+
+  test('enabledIds 只保留配置里的模块', () {
+    final List<String> ids = DashboardRegistry.resolve(
+      const DashboardConfig(
+        enabledIds: <String>{'tx_list', 'month_hero'},
+      ),
+    ).map((m) => m.id).toList();
+
+    expect(ids, <String>['month_hero', 'tx_list']);
+  });
+
+  test('默认间距：预算 24 / 入口 20 / 账单 20', () {
+    final Map<String, double> spacing = <String, double>{
+      for (final m in DashboardRegistry.modules) m.id: m.spacingBefore,
+    };
+
+    expect(spacing['autobook_banner'], 0);
+    expect(spacing['month_hero'], 0);
+    expect(spacing['budget_strip'], 24);
+    expect(spacing['chat_entry'], 20);
+    expect(spacing['tx_list'], 20);
+  });
+}
