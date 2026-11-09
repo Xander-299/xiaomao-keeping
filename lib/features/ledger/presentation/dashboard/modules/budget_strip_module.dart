@@ -7,6 +7,14 @@ import 'package:yanxin/features/ledger/application/ledger_controller.dart';
 import 'package:yanxin/features/ledger/presentation/widgets/budget_strip.dart';
 
 import '../dashboard_module.dart';
+import '../dashboard_param.dart';
+
+/// 预算条参数：是否在详情里显示「每天可花 ¥X」。
+const DashboardParamSpec kBudgetShowDailyParam = DashboardParamSpec(
+  id: 'show_daily',
+  title: '显示「每天可花」',
+  defaultValue: true,
+);
 
 class BudgetStripModule extends DashboardModule {
   const BudgetStripModule();
@@ -27,9 +35,21 @@ class BudgetStripModule extends DashboardModule {
   double get spacingBefore => 24;
 
   @override
+  List<DashboardParamSpec> get paramSpecs =>
+      const <DashboardParamSpec>[kBudgetShowDailyParam];
+
+  @override
   List<Widget> buildSlivers(
     BuildContext context,
     LedgerState state,
     DashboardDeps deps,
-  ) => const <Widget>[SliverToBoxAdapter(child: BudgetStrip())];
+  ) {
+    final bool showDaily = DashboardParamSpec.boolValue(
+      paramsOf(deps.params, id),
+      kBudgetShowDailyParam,
+    );
+    return <Widget>[
+      SliverToBoxAdapter(child: BudgetStrip(showDaily: showDaily)),
+    ];
+  }
 }

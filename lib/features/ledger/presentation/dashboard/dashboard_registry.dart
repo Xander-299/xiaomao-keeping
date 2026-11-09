@@ -53,7 +53,11 @@ class DashboardRegistry {
     for (final String id in defaultOrderIds) {
       if (!order.contains(id)) order.add(id);
     }
-    return DashboardConfig(enabledIds: enabled, orderIds: order);
+    return DashboardConfig(
+      enabledIds: enabled,
+      orderIds: order,
+      params: config.params,
+    );
   }
 
   /// 按配置过滤 + 排序。

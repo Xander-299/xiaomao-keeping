@@ -1,7 +1,7 @@
-# SPEC — UI Kit 收敛 + 首页模块化（P1/P2/P3）
+# SPEC — UI Kit 收敛 + 首页模块化（P1–P4）
 
 > 目标：让新增页面/区块优先复用公共组件，并让首页由可排序、可隐藏的模块组成。
-> P1 抽组件，P2 拆模块，P3 接用户配置（显示/隐藏 + 排序 + 持久化）。
+> P1 抽组件，P2 拆模块，P3 用户配置，P4 单模块参数（bool 开关）。
 
 ## P1 — UI Kit（零视觉变化）
 
@@ -58,9 +58,21 @@ modules/                  autobook / month_hero / budget / chat_entry / tx_list
 - 必选模块：`month_hero`、`tx_list`（`canHide = false`），开关锁定为开；
 - `DashboardRegistry.sanitize` 丢弃未知 id、补齐缺失模块、强制必选模块启用。
 
-## 非目标（P4+）
+## P4 — 单模块参数
 
-- 每个模块自己的参数（预算显示方式、图表类型、快捷操作）；
+- `dashboard_param.dart`：`DashboardParamSpec`（id / title / defaultValue）+ `DashboardParams` 类型；
+  只做 **bool 开关**，未配置的键 = 默认值（旧数据零迁移），脏值也回落默认；
+- 模块契约新增 `paramSpecs`（空 = 设置页不渲染参数区）；
+- 已落两个真实参数：
+  - `budget_strip.show_daily`「显示每天可花」→ `BudgetStrip(showDaily:)`
+  - `chat_entry.show_samples`「显示示例问题」→ `ChatEntryCard(showSamples:)`
+- `DashboardConfig.params` 随 JSON 一起持久化（`schema_meta.dashboard_config`）；
+- 设置页在模块卡片内渲染参数开关（模块隐藏时参数区一并隐藏）；
+- `DashboardDeps.params` 把参数传给模块构建。
+
+## 非目标（P5+）
+
+- 非布尔参数（枚举 / 数值 / 文本）；
 - 导航项顺序 / 自定义 tab；
 - 云同步首页布局。
 

@@ -71,6 +71,7 @@ class HomePage extends ConsumerWidget {
                       ref.read(ledgerProvider.notifier).shiftMonth(-1),
                   onNextMonth: () =>
                       ref.read(ledgerProvider.notifier).shiftMonth(1),
+                  params: dashboardConfig.params,
                 ),
               ),
             ),

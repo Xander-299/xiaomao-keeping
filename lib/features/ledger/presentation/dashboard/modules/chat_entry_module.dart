@@ -7,6 +7,14 @@ import 'package:yanxin/features/chat/presentation/widgets/chat_entry_card.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
 
 import '../dashboard_module.dart';
+import '../dashboard_param.dart';
+
+/// 入口卡参数：是否显示三个示例问题。
+const DashboardParamSpec kChatShowSamplesParam = DashboardParamSpec(
+  id: 'show_samples',
+  title: '显示示例问题',
+  defaultValue: true,
+);
 
 class ChatEntryModule extends DashboardModule {
   const ChatEntryModule();
@@ -27,9 +35,21 @@ class ChatEntryModule extends DashboardModule {
   double get spacingBefore => 20;
 
   @override
+  List<DashboardParamSpec> get paramSpecs =>
+      const <DashboardParamSpec>[kChatShowSamplesParam];
+
+  @override
   List<Widget> buildSlivers(
     BuildContext context,
     LedgerState state,
     DashboardDeps deps,
-  ) => const <Widget>[SliverToBoxAdapter(child: ChatEntryCard())];
+  ) {
+    final bool showSamples = DashboardParamSpec.boolValue(
+      paramsOf(deps.params, id),
+      kChatShowSamplesParam,
+    );
+    return <Widget>[
+      SliverToBoxAdapter(child: ChatEntryCard(showSamples: showSamples)),
+    ];
+  }
 }

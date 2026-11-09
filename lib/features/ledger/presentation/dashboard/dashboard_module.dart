@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
 
+import 'dashboard_param.dart';
+
 /// 模块之间共享的页面动作，避免模块直接依赖 HomePage 的私有方法。
 class DashboardDeps {
   const DashboardDeps({
@@ -14,6 +16,7 @@ class DashboardDeps {
     required this.onDelete,
     required this.onPrevMonth,
     required this.onNextMonth,
+    this.params,
   });
 
   final String Function(String?) categoryNameOf;
@@ -21,6 +24,9 @@ class DashboardDeps {
   final Future<void> Function(TxRow) onDelete;
   final VoidCallback onPrevMonth;
   final VoidCallback onNextMonth;
+
+  /// 每个模块的参数键值（来自 [DashboardConfig.params]）。
+  final DashboardParams? params;
 }
 
 /// 首页模块。
@@ -44,6 +50,9 @@ abstract class DashboardModule {
   bool get canHide => true;
 
   double get spacingBefore => 0;
+
+  /// 模块参数声明；空 = 无参数（设置页不渲染参数区）。
+  List<DashboardParamSpec> get paramSpecs => const <DashboardParamSpec>[];
 
   /// 返回该模块贡献的 sliver 列表；通常 1 个，交易列表会返回多个。
   List<Widget> buildSlivers(

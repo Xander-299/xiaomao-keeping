@@ -15,8 +15,12 @@ import 'package:yanxin/features/assistant/application/finance_answer.dart';
 import '../chat_page.dart';
 
 /// 首页入口卡。
+///
+/// [showSamples] 控制是否显示三个示例问题（首页布局参数，默认开）。
 class ChatEntryCard extends StatelessWidget {
-  const ChatEntryCard({super.key});
+  const ChatEntryCard({super.key, this.showSamples = true});
+
+  final bool showSamples;
 
   void _open(BuildContext context, {bool image = false, String? question}) {
     context.push('/chat', extra: ChatLaunch(openImagePicker: image, question: question));
@@ -88,14 +92,15 @@ class ChatEntryCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                for (final String q in kExampleQuestions.take(3))
-                  _MiniChip(label: q, onTap: () => _open(context, question: q)),
-              ],
-            ),
+            if (showSamples)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  for (final String q in kExampleQuestions.take(3))
+                    _MiniChip(label: q, onTap: () => _open(context, question: q)),
+                ],
+              ),
           ],
         ),
       ),

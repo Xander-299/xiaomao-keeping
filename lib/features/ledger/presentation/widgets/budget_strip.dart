@@ -21,8 +21,12 @@ import '../../application/ledger_controller.dart';
 import 'budget_edit_sheet.dart';
 
 /// 一行预算条。
+///
+/// [showDaily] 控制详情里是否显示「每天可花 ¥X」（首页布局参数，默认开）。
 class BudgetStrip extends ConsumerWidget {
-  const BudgetStrip({super.key});
+  const BudgetStrip({super.key, this.showDaily = true});
+
+  final bool showDaily;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -55,7 +59,7 @@ class BudgetStrip extends ConsumerWidget {
             boxShadow: p.hard(d: 2),
           ),
           child: view.hasBudget
-              ? _Filled(view: view)
+              ? _Filled(view: view, showDaily: showDaily)
               : Row(
                   children: <Widget>[
                     Icon(Icons.savings_outlined, size: 16, color: p.ink2),
@@ -79,9 +83,12 @@ class BudgetStrip extends ConsumerWidget {
 }
 
 class _Filled extends StatelessWidget {
-  const _Filled({required this.view});
+  const _Filled({required this.view, this.showDaily = true});
 
   final BudgetView view;
+
+  /// false 时不显示「每天可花」（首页布局参数）。
+  final bool showDaily;
 
   @override
   Widget build(BuildContext context) {
@@ -89,11 +96,15 @@ class _Filled extends StatelessWidget {
     final double ratio = view.progress.clamp(0.0, 1.0);
     final Color barColor = view.overspent ? p.red : p.brandDeep;
     // 先拼成一句话，再交给 ToonFadeValue 判断「变了没有」
+    final String dailySuffix = showDaily
+        ? (view.dailyRemainingCents != null
+              ? ' · 每天可花 ¥${centsToYuan(view.dailyRemainingCents!)}'
+              : '')
+        : '';
     final String detail = view.overspent
         ? '已超支 ¥${centsToYuan(view.overspentCents)}'
               '${view.daysLeft != null ? ' · 本月还剩 ${view.daysLeft} 天' : ''}'
-        : '还剩 ¥${centsToYuan(view.remainingCents)}'
-              '${view.dailyRemainingCents != null ? ' · 每天可花 ¥${centsToYuan(view.dailyRemainingCents!)}' : ''}';
+        : '还剩 ¥${centsToYuan(view.remainingCents)}$dailySuffix';
 
     return Column(
       mainAxisSize: MainAxisSize.min,

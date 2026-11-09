@@ -4,6 +4,8 @@ library;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:yanxin/features/ledger/presentation/dashboard/dashboard_config.dart';
+import 'package:yanxin/features/ledger/presentation/dashboard/dashboard_module.dart';
+import 'package:yanxin/features/ledger/presentation/dashboard/dashboard_param.dart';
 import 'package:yanxin/features/ledger/presentation/dashboard/dashboard_registry.dart';
 
 void main() {
@@ -84,5 +86,86 @@ void main() {
 
     expect(back.enabledIds, <String>{'month_hero', 'tx_list'});
     expect(back.orderIds, <String>['tx_list', 'month_hero']);
+  });
+
+  test('参数默认值：未配置时走 spec.defaultValue', () {
+    final DashboardModule budget = DashboardRegistry.modules
+        .firstWhere((m) => m.id == 'budget_strip');
+    final DashboardParamSpec spec = budget.paramSpecs.single;
+
+    expect(spec.id, 'show_daily');
+    expect(spec.defaultValue, isTrue);
+    expect(
+      DashboardParamSpec.boolValue(null, spec),
+      isTrue,
+      reason: '配置缺失 = 默认开（旧数据零迁移）',
+    );
+    expect(
+      DashboardParamSpec.boolValue(
+        const <String, Object?>{'show_daily': false},
+        spec,
+      ),
+      isFalse,
+    );
+    // 脏值（非 bool）也回落默认
+    expect(
+      DashboardParamSpec.boolValue(
+        const <String, Object?>{'show_daily': 'yes'},
+        spec,
+      ),
+      isTrue,
+    );
+  });
+
+  test('配置 JSON 带 params 往返', () {
+    const DashboardConfig config = DashboardConfig(
+      params: <String, Map<String, Object?>>{
+        'budget_strip': <String, Object?>{'show_daily': false},
+        'chat_entry': <String, Object?>{'show_samples': false},
+      },
+    );
+    final DashboardConfig back = DashboardConfig.fromJson(config.toJson());
+
+    expect(
+      back.params!['budget_strip'],
+      <String, Object?>{'show_daily': false},
+    );
+    expect(
+      back.params!['chat_entry'],
+      <String, Object?>{'show_samples': false},
+    );
+  });
+
+  test('sanitize 不丢 params', () {
+    const DashboardConfig config = DashboardConfig(
+      enabledIds: <String>{'bogus'},
+      orderIds: <String>['tx_list', 'bogus'],
+      params: <String, Map<String, Object?>>{
+        'budget_strip': <String, Object?>{'show_daily': false},
+      },
+    );
+    final DashboardConfig cleaned = DashboardRegistry.sanitize(config);
+
+    expect(
+      cleaned.params!['budget_strip'],
+      <String, Object?>{'show_daily': false},
+    );
+  });
+
+  test('sanitize 保留 params（P4 回归）', () {
+    final DashboardConfig cleaned = DashboardRegistry.sanitize(
+      const DashboardConfig(
+        enabledIds: <String>{'unknown_module'},
+        params: <String, Map<String, Object?>>{
+          'chat_entry': <String, Object?>{'show_samples': false},
+        },
+      ),
+    );
+
+    expect(
+      cleaned.params!['chat_entry'],
+      <String, Object?>{'show_samples': false},
+      reason: 'sanitize 丢 params 会让参数改动写不进库（真机踩过）',
+    );
   });
 }

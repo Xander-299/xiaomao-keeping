@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yanxin/data/providers/database.dart';
 
 import 'dashboard_config.dart';
+import 'dashboard_param.dart';
 import 'dashboard_registry.dart';
 
 /// `schema_meta` 里的 key；不存在 = 全默认。
@@ -85,6 +86,26 @@ class DashboardConfigController extends AsyncNotifier<DashboardConfig> {
       DashboardConfig(
         enabledIds: DashboardRegistry.effectiveEnabledIds(current),
         orderIds: order,
+        params: current.params,
+      ),
+    );
+  }
+
+  /// 设置某个模块参数；未知参数由调用方保证（spec 来自模块声明）。
+  Future<void> setParam(String moduleId, String paramId, bool value) async {
+    final DashboardConfig current = state.value ?? DashboardConfig.defaults;
+    final DashboardParams next = <String, Map<String, Object?>>{
+      ...?current.params,
+      moduleId: <String, Object?>{
+        ...?current.params?[moduleId],
+        paramId: value,
+      },
+    };
+    await save(
+      DashboardConfig(
+        enabledIds: DashboardRegistry.effectiveEnabledIds(current),
+        orderIds: DashboardRegistry.effectiveOrderIds(current),
+        params: next,
       ),
     );
   }

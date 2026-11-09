@@ -12,6 +12,7 @@ import 'package:yanxin/ui_kit/app_page_state.dart';
 import 'dashboard_config.dart';
 import 'dashboard_config_controller.dart';
 import 'dashboard_module.dart';
+import 'dashboard_param.dart';
 import 'dashboard_registry.dart';
 
 class DashboardLayoutPage extends ConsumerWidget {
@@ -145,6 +146,15 @@ class _LayoutList extends ConsumerWidget {
                                   color: p.ink2,
                                 ),
                               ),
+                              // 模块参数开关（P4）；关掉模块时一起变灰。
+                              if (module.paramSpecs.isNotEmpty && on)
+                                for (final DashboardParamSpec spec
+                                    in module.paramSpecs)
+                                  _ParamToggle(
+                                    moduleId: id,
+                                    spec: spec,
+                                    enabledIds: enabled,
+                                  ),
                             ],
                           ),
                         ),
@@ -168,6 +178,65 @@ class _LayoutList extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 单个模块参数开关行。
+class _ParamToggle extends ConsumerWidget {
+  const _ParamToggle({required this.moduleId, required this.spec, required this.enabledIds});
+
+  final String moduleId;
+  final DashboardParamSpec spec;
+  final Set<String> enabledIds;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ToonPalette p = context.toon;
+    final DashboardConfig config =
+        ref.watch(dashboardConfigProvider).value ?? DashboardConfig.defaults;
+    final bool value = DashboardParamSpec.boolValue(
+      paramsOf(config.params, moduleId),
+      spec,
+    );
+    return InkWell(
+      onTap: () => unawaited(
+        ref
+            .read(dashboardConfigProvider.notifier)
+            .setParam(moduleId, spec.id, !value),
+      ),
+      child: Padding(
+        key: ValueKey<String>('dashboard_param_${moduleId}_${spec.id}'),
+        padding: const EdgeInsets.only(top: 6),
+        child: Row(
+          children: <Widget>[
+            const SizedBox(width: 4),
+            Icon(Icons.tune_rounded, size: 13, color: p.ink3),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                spec.title,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: p.ink2,
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 26,
+              child: Switch(
+                value: value,
+                onChanged: (bool v) => unawaited(
+                  ref
+                      .read(dashboardConfigProvider.notifier)
+                      .setParam(moduleId, spec.id, v),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
