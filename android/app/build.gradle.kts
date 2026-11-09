@@ -42,16 +42,12 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        // F8.1 ABI 瘦身：**正式包只打 ARM**（真机全是 ARM）。
-        // 依据：ML Kit 的 `libmlkit_google_ocr_pipeline.so` 每个 ABI 约 6–11 MB，
-        //       x86_64 那份（11 MB）在手机上永远用不到 —— 只为模拟器存在。
-        // ⚠️ AGP 的 `ndk.abiFilters` 在 **buildType 层是并集**（实测：defaultConfig 给
-        //    arm64+v7a、buildType 只给 arm64，最终 APK 仍是 arm64+v7a）→ 所以 debug 里
-        //    追加 x86_64 是"加"不是"换"；release 不追加 → 正好只剩 defaultConfig 这两项。
-        ndk {
-            abiFilters.clear()
-            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
-        }
+        // ABI 交给构建命令决定（`--target-platform android-arm/-arm64/-x64`）：
+        // Flutter 会据此设置 abiFilters，**这里不要写死**。
+        // 历史：F8.1 曾在 defaultConfig 里写死 arm64+v7a 给正式包瘦身；但 AGP 的
+        // abiFilters 在 buildType 层是**并集**，一旦再给 release 补 x86_64（发布页要提供
+        // 模拟器包），每个 APK 都会同时塞进三套 ML Kit 原生库（每个 ABI 6–11 MB）。
+        // 2026-11-09 起改为不设默认值，按 ABI 分别出包，包体反而更小。
     }
 
     // ⚠️ `signingConfigs` 必须声明在 `buildTypes` **之前**：
@@ -71,11 +67,7 @@ android {
 
     buildTypes {
         debug {
-            // 模拟器（x86_64）要能跑：debug 补回 x86_64，别让它跟正式包一起被裁掉。
-            // （与 defaultConfig 是**并集**，所以这里只写要额外加的那一项。）
-            ndk {
-                abiFilters.add("x86_64")
-            }
+            // 不再需要单独补 x86_64：ABI 由构建命令决定（模拟器用 android-x64）。
         }
         release {
             // 有 `android/key.properties` 时用正式签名；没有（如 clone 仓库的机器）回退
