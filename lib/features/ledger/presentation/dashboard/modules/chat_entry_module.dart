@@ -9,10 +9,10 @@ import 'package:yanxin/features/ledger/application/ledger_controller.dart';
 import '../dashboard_module.dart';
 import '../dashboard_param.dart';
 
-/// 入口卡参数：是否显示三个示例问题。
+/// 入口卡参数：是否显示三个示例问题（内部组件，树形二级控制）。
 const DashboardParamSpec kChatShowSamplesParam = DashboardParamSpec(
   id: 'show_samples',
-  title: '显示示例问题',
+  title: '示例问题',
   defaultValue: true,
 );
 
@@ -35,7 +35,7 @@ class ChatEntryModule extends DashboardModule {
   double get spacingBefore => 20;
 
   @override
-  List<DashboardParamSpec> get paramSpecs =>
+  List<DashboardParamSpec> get childSpecs =>
       const <DashboardParamSpec>[kChatShowSamplesParam];
 
   @override

@@ -91,7 +91,7 @@ void main() {
   test('参数默认值：未配置时走 spec.defaultValue', () {
     final DashboardModule budget = DashboardRegistry.modules
         .firstWhere((m) => m.id == 'budget_strip');
-    final DashboardParamSpec spec = budget.paramSpecs.single;
+    final DashboardParamSpec spec = budget.childSpecs.single;
 
     expect(spec.id, 'show_daily');
     expect(spec.defaultValue, isTrue);

@@ -11,11 +11,11 @@ import 'package:flutter/material.dart';
 
 /// 可选的品牌主色。
 enum ToonSeed {
-  /// 默认：森绿（2026-10-28 换肤后的品牌锚点）。
-  forest('森绿', Color(0xFF2E5E4E), '默认 · 沉稳墨绿'),
+  /// 默认：琥珀（与启动图标的橙底对齐，设置页排第一位）。
+  amber('琥珀', Color(0xFFFFB627), '默认 · 元气黄'),
 
-  /// F7.6 时代的琥珀（换肤前的配色，保留给喜欢暖色的用户）。
-  amber('琥珀', Color(0xFFFFB627), '暖 · 元气黄'),
+  /// 2026-10-28 换肤时的森绿（保留给喜欢冷色的用户）。
+  forest('森绿', Color(0xFF2E5E4E), '沉稳 · 墨绿'),
 
   /// 冷色系，长时间记账更安静。
   indigo('黛蓝', Color(0xFF3F5A8A), '冷静 · 靛青'),
@@ -40,12 +40,12 @@ enum ToonSeed {
   /// 落库值（= 枚举名）。
   String get storageValue => name;
 
-  /// 解析落库值：未知 / null / 脏数据一律回落 [forest]（不能因为一个脏值起不来）。
+  /// 解析落库值：未知 / null / 脏数据一律回落 [amber]（不能因为一个脏值起不来）。
   static ToonSeed parse(String? raw) {
     final String v = (raw ?? '').trim().toLowerCase();
     for (final ToonSeed s in ToonSeed.values) {
       if (s.name == v) return s;
     }
-    return ToonSeed.forest;
+    return ToonSeed.amber;
   }
 }

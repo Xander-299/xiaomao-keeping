@@ -54,6 +54,9 @@ abstract class DashboardModule {
   /// 模块参数声明；空 = 无参数（设置页不渲染参数区）。
   List<DashboardParamSpec> get paramSpecs => const <DashboardParamSpec>[];
 
+  /// 模块的内部组件声明；空 = 该模块没有二级控制（不显示展开箭头）。
+  List<DashboardParamSpec> get childSpecs => const <DashboardParamSpec>[];
+
   /// 返回该模块贡献的 sliver 列表；通常 1 个，交易列表会返回多个。
   List<Widget> buildSlivers(
     BuildContext context,

@@ -43,7 +43,8 @@ class RealBill {
         if (!file.existsSync()) {
           _skipReason = '缺少真实件 $label（$path）';
         } else {
-          _parsed = parseBillFileAuto(file.readAsBytesSync());
+          final outcome = parseBillFileAuto(file.readAsBytesSync());
+          if (outcome is BillRowsOutcome) _parsed = outcome.result;
         }
       } on Exception catch (error) {
         _skipReason = '真实件 $label 读取/解析失败：$error';
