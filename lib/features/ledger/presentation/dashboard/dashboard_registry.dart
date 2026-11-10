@@ -3,6 +3,7 @@ library;
 
 import 'dashboard_config.dart';
 import 'dashboard_module.dart';
+import 'dashboard_param.dart';
 import 'modules/auto_book_banner_module.dart';
 import 'modules/budget_strip_module.dart';
 import 'modules/chat_entry_module.dart';
@@ -35,6 +36,23 @@ class DashboardRegistry {
 
   static List<String> effectiveOrderIds(DashboardConfig config) =>
       config.orderIds ?? defaultOrderIds;
+
+  /// 找某个模块的某个参数声明（模块级 + 内部组件级都找）。
+  ///
+  /// 写入时要用它做归一：`setParam` 拿到的是 `Object`，得知道这个 key 该怎么校验。
+  /// 找不到 = 未知参数（模块或参数已被删掉 / 拼错），调用方应拒绝写入。
+  static DashboardParamSpec? specOf(String moduleId, String paramId) {
+    for (final DashboardModule m in modules) {
+      if (m.id != moduleId) continue;
+      for (final DashboardParamSpec s in <DashboardParamSpec>[
+        ...m.paramSpecs,
+        ...m.childSpecs,
+      ]) {
+        if (s.id == paramId) return s;
+      }
+    }
+    return null;
+  }
 
   /// 清洗脏数据：丢弃未知 id、补齐缺失模块、强制核心模块启用。
   static DashboardConfig sanitize(DashboardConfig config) {

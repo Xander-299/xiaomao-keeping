@@ -20,13 +20,28 @@ import '../../application/budget_metrics.dart';
 import '../../application/ledger_controller.dart';
 import 'budget_edit_sheet.dart';
 
+/// 副行口径：还剩多少 / 已经花掉多少。
+enum BudgetStripDetail {
+  /// 「还剩 ¥X」（默认，剩余派）。
+  remaining,
+
+  /// 「已花 ¥X」（支出派）。
+  spent,
+}
+
 /// 一行预算条。
 ///
-/// [showDaily] 控制详情里是否显示「每天可花 ¥X」（首页布局参数，默认开）。
+/// [showDaily] 控制详情里是否显示「每天可花 ¥X」（首页布局参数，默认开）；
+/// [detail] 控制副行是「还剩」还是「已花」（另一条布局参数）。
 class BudgetStrip extends ConsumerWidget {
-  const BudgetStrip({super.key, this.showDaily = true});
+  const BudgetStrip({
+    super.key,
+    this.showDaily = true,
+    this.detail = BudgetStripDetail.remaining,
+  });
 
   final bool showDaily;
+  final BudgetStripDetail detail;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -59,7 +74,7 @@ class BudgetStrip extends ConsumerWidget {
             boxShadow: p.hard(d: 2),
           ),
           child: view.hasBudget
-              ? _Filled(view: view, showDaily: showDaily)
+              ? _Filled(view: view, showDaily: showDaily, detail: detail)
               : Row(
                   children: <Widget>[
                     Icon(Icons.savings_outlined, size: 16, color: p.ink2),
@@ -83,12 +98,19 @@ class BudgetStrip extends ConsumerWidget {
 }
 
 class _Filled extends StatelessWidget {
-  const _Filled({required this.view, this.showDaily = true});
+  const _Filled({
+    required this.view,
+    this.showDaily = true,
+    this.detail = BudgetStripDetail.remaining,
+  });
 
   final BudgetView view;
 
   /// false 时不显示「每天可花」（首页布局参数）。
   final bool showDaily;
+
+  /// 副行口径（首页布局参数）。
+  final BudgetStripDetail detail;
 
   @override
   Widget build(BuildContext context) {
@@ -101,10 +123,16 @@ class _Filled extends StatelessWidget {
               ? ' · 每天可花 ¥${centsToYuan(view.dailyRemainingCents!)}'
               : '')
         : '';
-    final String detail = view.overspent
+    // 超支时两种口径说的是同一件事（都是「超了多少」），所以仍走「已超支」。
+    final String detailText = view.overspent
         ? '已超支 ¥${centsToYuan(view.overspentCents)}'
               '${view.daysLeft != null ? ' · 本月还剩 ${view.daysLeft} 天' : ''}'
-        : '还剩 ¥${centsToYuan(view.remainingCents)}$dailySuffix';
+        : switch (detail) {
+            BudgetStripDetail.remaining =>
+              '还剩 ¥${centsToYuan(view.remainingCents)}$dailySuffix',
+            BudgetStripDetail.spent =>
+              '已花 ¥${centsToYuan(view.spentCents)}$dailySuffix',
+          };
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -155,9 +183,9 @@ class _Filled extends StatelessWidget {
             const SizedBox(width: 21),
             Expanded(
               child: ToonFadeValue(
-                value: detail,
+                value: detailText,
                 child: Text(
-                  detail,
+                  detailText,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

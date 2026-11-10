@@ -24,12 +24,15 @@ import '../../../data/providers/database.dart';
 import '../../../data/repositories/account_repository.dart';
 import '../../../data/repositories/category_repository.dart';
 import '../../ledger/application/ledger_controller.dart';
+import '../../ledger/presentation/dashboard/dashboard_config_controller.dart';
+import '../../settings/application/theme_controller.dart';
 import '../../stats/application/stats_controller.dart';
 import '../application/backup_restore.dart';
 import '../application/bill_importer.dart';
 import '../data/bill_normalize.dart';
 import '../data/bill_parse.dart';
 import '../data/category_rules.dart';
+import 'backup_settings_dialog.dart';
 
 part 'widgets/import_step_bar.dart';
 part 'widgets/import_pick_body.dart';
@@ -149,15 +152,31 @@ class _ImportPageState extends ConsumerState<ImportPage> {
   /// 恢复小耄记账备份（JSON）。恢复进当前账本，指纹去重保证幂等。
   Future<void> _restoreBackup(List<int> bytes, String? name) async {
     try {
+      // 备份里带了外观 / 布局时先问一句：默认一并恢复（换机是最常见场景），
+      // 但只把账并进来的用户不该被顺手换了主题。
+      var restoreSettings = true;
+      if (backupHasSettings(bytes)) {
+        if (!mounted) return;
+        restoreSettings = await askRestoreBackupSettings(context);
+        if (!mounted) return;
+      }
       final db = ref.read(appDatabaseProvider);
       final BackupRestoreReport report = await restoreBackupJson(
         db,
         bytes: bytes,
         createBook: false,
+        restoreSettings: restoreSettings,
       );
       // 恢复改变了首页 / 统计 / 资产数据，全部主动刷新
       await ref.read(ledgerProvider.notifier).refresh();
       unawaited(ref.read(statsProvider.notifier).refresh());
+      if (report.settingsRestored > 0) {
+        // 设置是直接写库的，三个 AsyncNotifier 不会自己感知 —— 必须显式失效，
+        // 否则「恢复完看着还是旧主题」，得杀进程才生效。
+        ref.invalidate(themeSeedProvider);
+        ref.invalidate(themeModeProvider);
+        ref.invalidate(dashboardConfigProvider);
+      }
       ref.read(dataEpochProvider.notifier).bump();
       if (!mounted) return;
       setState(() {
@@ -645,6 +664,8 @@ extension _BackupReportUi on _ImportPageState {
         _Kv(label: '新建分类', value: '${r.createdCategories}'),
       if (r.budgetsRestored > 0)
         _Kv(label: '恢复预算', value: '${r.budgetsRestored} 个月'),
+      if (r.settingsRestored > 0)
+        _Kv(label: '恢复外观与布局', value: '${r.settingsRestored} 项'),
       _Kv(label: '账本', value: r.bookName ?? '当前账本'),
     ];
 

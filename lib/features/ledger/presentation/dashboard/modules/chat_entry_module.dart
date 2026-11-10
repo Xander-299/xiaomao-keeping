@@ -9,11 +9,21 @@ import 'package:yanxin/features/ledger/application/ledger_controller.dart';
 import '../dashboard_module.dart';
 import '../dashboard_param.dart';
 
-/// 入口卡参数：是否显示三个示例问题（内部组件，树形二级控制）。
+/// 入口卡参数：是否显示示例问题（内部组件，树形二级控制）。
 const DashboardParamSpec kChatShowSamplesParam = DashboardParamSpec(
   id: 'show_samples',
   title: '示例问题',
   defaultValue: true,
+);
+
+/// 示例问题条数（P5 · count 类型）：1–3 条。
+const DashboardParamSpec kChatSampleCountParam = DashboardParamSpec(
+  id: 'sample_count',
+  title: '示例条数',
+  kind: DashboardParamKind.count,
+  defaultValue: 3,
+  min: 1,
+  max: 3,
 );
 
 class ChatEntryModule extends DashboardModule {
@@ -35,8 +45,10 @@ class ChatEntryModule extends DashboardModule {
   double get spacingBefore => 20;
 
   @override
-  List<DashboardParamSpec> get childSpecs =>
-      const <DashboardParamSpec>[kChatShowSamplesParam];
+  List<DashboardParamSpec> get childSpecs => const <DashboardParamSpec>[
+    kChatShowSamplesParam,
+    kChatSampleCountParam,
+  ];
 
   @override
   List<Widget> buildSlivers(
@@ -44,12 +56,16 @@ class ChatEntryModule extends DashboardModule {
     LedgerState state,
     DashboardDeps deps,
   ) {
-    final bool showSamples = DashboardParamSpec.boolValue(
-      paramsOf(deps.params, id),
-      kChatShowSamplesParam,
-    );
+    final Map<String, Object?>? params = paramsOf(deps.params, id);
+    final bool showSamples = kChatShowSamplesParam.boolOf(params);
+    final int sampleCount = kChatSampleCountParam.countOf(params);
     return <Widget>[
-      SliverToBoxAdapter(child: ChatEntryCard(showSamples: showSamples)),
+      SliverToBoxAdapter(
+        child: ChatEntryCard(
+          showSamples: showSamples,
+          sampleCount: sampleCount,
+        ),
+      ),
     ];
   }
 }
