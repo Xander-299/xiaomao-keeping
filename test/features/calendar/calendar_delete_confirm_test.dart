@@ -18,6 +18,7 @@ import 'package:yanxin/data/repositories/app_meta_repository.dart';
 import 'package:yanxin/data/repositories/book_repository.dart';
 import 'package:yanxin/data/repositories/category_repository.dart';
 import 'package:yanxin/data/repositories/transaction_repository.dart';
+import 'package:yanxin/features/ledger/presentation/tx_restore_message.dart';
 import 'package:yanxin/features/onboarding/application/onboarding_keys.dart';
 
 import '../../helpers/test_database.dart';
@@ -109,5 +110,34 @@ void main() {
     expect(find.text(_note), findsNothing);
     expect(find.textContaining('已删除「$_note」'), findsOneWidget);
     expect(await _activeCount(db), 0);
+  });
+
+  // P3：受影响行数 0 时不能再假装删成功。
+  //
+  // 场景：确认框还开着的时候，这行已被别的入口删掉（另一个 tab / 通知栏撤销）。
+  // 旧行为照样弹「已删除 + 撤销」，而撤销会把一条**用户没删过的记录**恢复出来 ——
+  // 语义反了。正确行为：只说「已经不在了」，不给撤销。
+  testWidgets('确认时这行已被别处删掉：提示「已经不在了」且没有撤销', (
+    WidgetTester tester,
+  ) async {
+    final AppDatabase db = openTestDatabase();
+    addTearDown(db.close);
+    await _seedTodayTx(db);
+
+    await _pumpCalendar(tester, db);
+    await _openConfirm(tester);
+
+    // 确认框开着这段时间里，别处把它删了。
+    final Book book = (await BookRepository(db).listAll()).single;
+    final List<TxRow> rows = await TransactionRepository(db).listByBook(book.id);
+    await TransactionRepository(db).softDelete(rows.single.id);
+
+    await tester.tap(find.widgetWithText(ToonButton, '删除'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.textContaining('已删除「'), findsNothing);
+    expect(find.text('撤销'), findsNothing);
+    expect(find.text(kTxAlreadyGoneMessage), findsOneWidget);
   });
 }

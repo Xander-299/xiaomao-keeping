@@ -4,11 +4,15 @@
 /// 走 `auto_book_batches.dart` 落库的 KV —— 两条入口最终都汇到 [AutoBookNoticeNotifier.undo]。
 library;
 
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:yanxin/core/providers/after_write.dart';
+import 'package:yanxin/core/providers/data_epoch.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/features/autobook/data/auto_book_batches.dart';
+import 'package:yanxin/features/autobook/data/auto_book_diagnostics.dart';
 
 /// 最近一批自动记账（null = 没有待提示的批次）。
 ///
@@ -56,8 +60,9 @@ class AutoBookNoticeNotifier extends Notifier<AutoBookBatch?> {
         batch.bookId ?? await repo.bookIdOfTransactions(batch.txIds);
     if (scopeBookId == null) return 0;
 
-    final int deleted = await ref.read(appDatabaseProvider).transaction<int>(
-      () async {
+    final int deleted;
+    try {
+      deleted = await ref.read(appDatabaseProvider).transaction<int>(() async {
         final int n = await repo.softDeleteBatch(
           ids: batch.txIds,
           bookId: scopeBookId,
@@ -65,11 +70,41 @@ class AutoBookNoticeNotifier extends Notifier<AutoBookBatch?> {
         // 与软删同一事务：批次记录写失败 → 上面的 deleted 也回滚。
         await store.forget(id);
         return n;
-      },
-    );
+      });
+    } catch (e) {
+      // P3：撤销失败原先只回滚事务、**不留任何痕迹**。通知栏按钮在冷启动后被点、
+      // 失败时用户回到 `/autobook` 只看到「没有新的支付通知」，无从判断为什么没撤掉。
+      // 这里把「哪一批 + 什么错」写进 last-run（诊断块直接显示），再把异常原样抛给调用方。
+      await _rememberUndoFailure(id, e);
+      rethrow;
+    }
     if (state?.batchId == id) state = null;
     refreshAfterAutoBookWrite(ref);
     return deleted;
+  }
+
+  /// 把撤销失败写进 `autobook_last_run`（跨启动可见）。
+  ///
+  /// 只写 error，不动 imported / duplicates —— 那是「上次检查」的入账统计，撤销失败
+  /// 不该把它们清零。写库失败也不抛：诊断记录绝不能盖掉真正的错误。
+  Future<void> _rememberUndoFailure(String batchId, Object e) async {
+    final String raw = e.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+    final String short = raw.length > 80 ? '${raw.substring(0, 80)}…' : raw;
+    try {
+      await ref.read(appMetaRepositoryProvider).set(
+        kAutoBookLastRunKey,
+        jsonEncode(
+          AutoBookLastRun(
+            atMs: DateTime.now().millisecondsSinceEpoch,
+            error: '撤销批次 $batchId 失败：$short',
+          ).toJson(),
+        ),
+      );
+      // `/autobook` 的「上次检查」watch 数据版本号，bump 一次让它立刻重读。
+      ref.read(dataEpochProvider.notifier).bump();
+    } catch (_) {
+      // 诊断写不进去不影响主流程（与 _rememberLastRun 同一口径）
+    }
   }
 }
 

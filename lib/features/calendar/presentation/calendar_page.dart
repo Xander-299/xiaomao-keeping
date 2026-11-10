@@ -136,8 +136,9 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
     TxRow tx,
   ) async {
     if (!await confirmDeleteTx(context)) return;
+    final bool deleted;
     try {
-      await ref.read(calendarProvider.notifier).removeTx(tx.id);
+      deleted = await ref.read(calendarProvider.notifier).removeTx(tx.id);
     } catch (e) {
       if (context.mounted) {
         showToonError(context, writeFailureMessage(e, action: '删除'));
@@ -152,6 +153,11 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
     // 资产页 watch 数据版本号，bump 即重算
     ref.read(dataEpochProvider.notifier).bump();
     if (!context.mounted) return;
+    // P3：与首页同一口径 —— 0 行 = 早被别处删过，不报「已删除」也不给撤销。
+    if (!deleted) {
+      showToonFeedback(context, kTxAlreadyGoneMessage);
+      return;
+    }
     final String label = tx.note.isNotEmpty
         ? tx.note
         : '${centsToYuan(tx.amountCents, group: true)} 元';

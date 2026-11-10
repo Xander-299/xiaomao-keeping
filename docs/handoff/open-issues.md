@@ -233,24 +233,46 @@
       回归测试：`test/data/repositories/category_repository_test.dart` 的「分类编辑原子性」组，
       用真实 SQLite trigger（`BEFORE UPDATE OF parent_id … RAISE(ABORT)`）在父级写入阶段注入数据库错误，
       断言名称 / 图标 / 颜色 / 父级 / 排序 / updatedAt 全部保持原值（去掉事务后该用例会失败）。
-    - **P3 · 导入 fingerprint 并发竞争**：
-      `BillImporter.importRows` 先批量 `SELECT fingerprint` 再逐行插入；两个导入并发时都可能通过预查，
-      最终由 `(book_id, fingerprint)` 唯一索引兜底。失败行会被计入 error 而不是 duplicate，
-      用户看到「导入失败」而不是「重复跳过」。建议把预查 + 插入收进单事务，或在唯一冲突时回查并归类为 duplicate。
-    - **P3 · Ledger / Search 删除未检查 affected rows**：
-      `TransactionRepository.softDelete` 返回受影响行数，但首页 / 搜索的删除链路只 `await`、不校验返回值；
-      行已被其他入口删掉时仍会弹「已删除」并展示 Undo。建议透出返回值，0 行时提示「这笔已不存在」并刷新，不展示 Undo。
-    - **P3 · 自动记账后台撤销错误缺少 diagnostics / last-run error**：
-      `AutoBookNoticeNotifier.undo` 失败时只回滚事务，没有写 `autobook_last_run` 的 error 字段；
-      通知栏冷启动撤销失败后，`/autobook` 诊断块看不到原因。建议把 undo 失败（batchId + 错误摘要）写入 last-run，
-      并在诊断块展示。
-    - **P3 · 分类 `undelete()` 的校验与写入不在同一事务（复审新发现）**：
-      `CategoryRepository.undelete` 依次做「读原记录 → `_assertNameFree` → 查父分类 → UPDATE」，
-      全程没有 `_db.transaction`；校验通过后、UPDATE 之前若并发插入同名活跃分类或删掉父分类，
-      仍会写出一个不该恢复的节点。建议整段包进 `_db.transaction`，并在事务内重做校验。
-    - **P3 · 日历请求有效性判定不含 bookId（复审新发现）**：
-      `_isCurrentDayRequest` 只比对 `_disposed` / `_dayRequestId` / `selectedDate`，`_loadMonth` 只比对年月；
-      而 `CalendarController.build()` 不 watch `activeBookIdProvider`，`ActiveBookIdController.select()`
-      也不 invalidate `calendarProvider`。账本切换时在途请求不会被判定为过期，可能把旧账本结果写进新账本视图。
-      建议在请求里捕获 bookId 并纳入有效性判定（或在切换时 invalidate 控制器）。
+    - **✅ 已修复（2026-11-10）· P3 · 导入 fingerprint 并发竞争**：
+      原问题：`BillImporter.importRows` 先批量 `SELECT fingerprint` 再逐行插入；两个导入并发时都可能通过预查，
+      最终由 `(book_id, fingerprint)` 唯一索引兜底，而此时插入**抛错** → 整批回滚，用户看到「导入失败」，
+      事实却是「这笔早就有了」。
+      修复：`TransactionRepository.importTransaction` 的插入改用 **`InsertMode.insertOrIgnore`** ——
+      撞唯一索引时静默不写、不抛异常，随后回查同指纹行：查到 → `ImportDuplicate`（幂等口径）；
+      既没写进去又查不到（非空 / 外键等其它约束）→ 抛 `StateError`，不假装成功。
+      ⚠️ 别改回「插失败 + catch 里回查」：SQLite 的 `ABORT` 会回滚**整条语句**（含触发器写入的行），
+      失败后回查什么都查不到，等于没兜住 —— 第一版就是这么写的，CI 上当场挂了。
+      回归测试：`test/data/repositories/transaction_import_race_test.dart` —— 用 `BEFORE INSERT` trigger
+      精确复现「预查之后、插入之前冒出同指纹行」，断言结果 `ImportDuplicate` 且库里仍只有一行；
+      另一例让 trigger 直接 `RAISE(ABORT)`（无同指纹行），断言异常照旧抛出、不被吞成 duplicate。
+    - **✅ 已修复（2026-11-10）· P3 · Ledger / Search 删除未检查 affected rows**：
+      原问题：`TransactionRepository.softDelete` 返回受影响行数，但首页 / 日历 / 搜索的删除链路只 `await`、
+      不校验返回值；行已被其他入口删掉时仍弹「已删除」并展示 Undo —— 而 Undo 会把一条**用户没删过的**
+      记录恢复出来，语义是反的。
+      修复：`LedgerController.removeTx` / `CalendarController.removeTx` 改为返回 `bool`（受影响行数 > 0）；
+      三个入口（首页 / 日历 / 搜索）在 0 行时只刷新 + 显示 `kTxAlreadyGoneMessage`（「这笔流水已经不在了，
+      列表已刷新」），**不弹 Undo**。
+      回归测试：`test/features/calendar/calendar_delete_confirm_test.dart` 新增「确认时这行已被别处删掉」。
+    - **✅ 已修复（2026-11-10）· P3 · 自动记账后台撤销错误缺少 diagnostics / last-run error**：
+      原问题：`AutoBookNoticeNotifier.undo` 失败时只回滚事务，没写 `autobook_last_run` 的 error；
+      通知栏冷启动撤销失败后，`/autobook` 诊断块看不到原因。
+      修复：`undo()` 的写库段包 try/catch，失败时 `_rememberUndoFailure(batchId, e)` 把
+      「撤销批次 <id> 失败：<80 字摘要>」写进 last-run（并 bump `dataEpochProvider` 让诊断块立刻重读），
+      然后把异常原样抛出。只写 error，不动 imported / duplicates —— 撤销失败不该清掉上次的入账统计。
+      回归测试：`test/features/autobook/auto_book_undo_failure_test.dart`（trigger 让软删 ABORT）。
+    - **✅ 已修复（2026-11-10）· P3 · 分类 `undelete()` 的校验与写入不在同一事务**：
+      原问题：四步裸跑（读原记录 → `_assertNameFree` → 查父分类 → UPDATE），校验通过后、UPDATE 之前若并发
+      插入同名活跃分类或删掉父分类，仍会写出一个不该恢复的节点。
+      修复：整段包进 `_db.transaction<bool>(...)`，事务内重做全部校验；UPDATE 改用受影响行数兜底
+      （并发下被别人先恢复 / 又删一次时返回 false，不再假报成功）。
+      回归测试：`test/data/repositories/category_undelete_atomic_test.dart`（正常恢复 / 撞名 / 写入阶段
+      trigger ABORT 后仍保持删除态）。
+    - **✅ 已修复（2026-11-10）· P3 · 日历请求有效性判定不含 bookId**：
+      原问题：`_isCurrentDayRequest` 只比对 `_disposed` / `_dayRequestId` / `selectedDate`，`_loadMonth` 只比
+      年月；而 `CalendarController.build()` 不 watch `activeBookIdProvider` —— 换账本后在途请求不算过期，
+      旧账本结果会写进新账本视图。
+      修复：`build()` 里 `ref.listen(activeBookIdProvider)`，值真的换了（非 null → 另一个非 null）就
+      `invalidateSelf()`：旧实例 dispose → 迟到结果全丢，新实例按新账本重拉。**没有**让控制器到处 watch 账本
+      （那会把「翻月不动首页月份」的隔离性弄丢）。
+      回归测试：`test/features/calendar/calendar_book_switch_test.dart`（两本账本各一笔，切完只剩新账本那笔）。
 

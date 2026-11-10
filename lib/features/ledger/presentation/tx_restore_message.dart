@@ -16,3 +16,10 @@ String txRestoreFailureMessage(TxRestoreResult result) => switch (result) {
   TxRestoreResult.categoryKindMismatch => '无法撤销：关联分类与收支方向不一致',
   TxRestoreResult.fingerprintConflict => '无法撤销：同账本已有相同指纹的记录',
 };
+
+/// 删除时「受影响行数 = 0」的提示（P3）。
+///
+/// 含义：点删除的那一刻，这行已经被别的入口（另一个 tab、通知栏撤销、另一台设备同步过来的
+/// 同库操作）删掉了。不能弹「已删除 + 撤销」—— 那是假装自己删成功，而 Undo 还会去恢复一条
+/// 本来就该消失的记录。三个删除入口共用这句，口径一致。
+const String kTxAlreadyGoneMessage = '这笔流水已经不在了，列表已刷新';

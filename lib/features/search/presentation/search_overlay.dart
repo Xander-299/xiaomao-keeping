@@ -163,8 +163,11 @@ class _SearchOverlayState extends ConsumerState<SearchOverlay> {
 
   Future<void> _confirmDelete(TxRow tx) async {
     if (!await confirmDeleteTx(context)) return;
+    final int changed;
     try {
-      await ref.read(transactionRepositoryProvider).softDelete(tx.id);
+      changed = await ref
+          .read(transactionRepositoryProvider)
+          .softDelete(tx.id);
       await ref.read(searchProvider.notifier).refresh();
     } catch (e) {
       if (mounted) {
@@ -183,6 +186,11 @@ class _SearchOverlayState extends ConsumerState<SearchOverlay> {
     if (mounted) setState(() {});
     final BuildContext pageContext = context;
     if (!pageContext.mounted) return;
+    // P3：0 行 = 这条已被别的入口删掉。不报「已删除」、也不给撤销（撤销语义是反的）。
+    if (changed == 0) {
+      showToonFeedback(pageContext, kTxAlreadyGoneMessage);
+      return;
+    }
     final String label = tx.note.isNotEmpty
         ? tx.note
         : '${centsToYuan(tx.amountCents, group: true)} 元';

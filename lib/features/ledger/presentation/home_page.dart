@@ -97,8 +97,9 @@ class HomePage extends ConsumerWidget {
     TxRow tx,
   ) async {
     if (!await confirmDeleteTx(context)) return;
+    final bool deleted;
     try {
-      await ref.read(ledgerProvider.notifier).removeTx(tx.id);
+      deleted = await ref.read(ledgerProvider.notifier).removeTx(tx.id);
     } catch (e) {
       // 数据库锁 / 磁盘 / Drift 等异常：不弹 Undo，让用户知道删除没成功。
       if (context.mounted) {
@@ -114,6 +115,12 @@ class HomePage extends ConsumerWidget {
     // 资产页 watch 数据版本号，bump 即重算
     ref.read(dataEpochProvider.notifier).bump();
     if (!context.mounted) return;
+    // P3：受影响行数 0 = 这行早被别的入口删掉了。此时既不报「已删除」，也不给撤销
+    //（撤销会把用户其实没删的那笔恢复出来，语义是反的），只刷新 + 说实话。
+    if (!deleted) {
+      showToonFeedback(context, kTxAlreadyGoneMessage);
+      return;
+    }
     final String label = tx.note.isNotEmpty
         ? tx.note
         : '${centsToYuan(tx.amountCents, group: true)} 元';

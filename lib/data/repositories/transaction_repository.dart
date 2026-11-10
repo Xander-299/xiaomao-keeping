@@ -64,6 +64,29 @@ extension TxRestoreResultX on TxRestoreResult {
   bool get isRestored => this == TxRestoreResult.restored;
 }
 
+/// 入账前的参数校验（`create` 与 `importTransaction` 共用）。
+///
+/// ⚠️ 别只在一处做：`importTransaction` 的指纹分支自己拼 companion 直插（为了用
+/// `INSERT OR IGNORE`），早先漏调这套校验，结果「分类缺失」不再抛错 ——
+/// 直接把 categoryId 为 null 的 expense 写进了库（`bill_importer_test` 的
+/// 「非 duplicate 异常 → 整体回滚」当场抓到）。
+void _validateTransactionInput({
+  required String bookId,
+  required String accountId,
+  required String type,
+  required int amountCents,
+  String? categoryId,
+}) {
+  if (amountCents <= 0) {
+    throw ArgumentError.value(amountCents, 'amountCents', '金额必须为正整数（分）');
+  }
+  if (bookId.isEmpty || accountId.isEmpty) {
+    throw ArgumentError('bookId 与 accountId 为必填');
+  }
+  if (type != 'transfer' && (categoryId == null || categoryId.isEmpty)) {
+    throw ArgumentError('$type 类型必须指定 categoryId');
+  }
+}
 
 class TransactionRepository {
   TransactionRepository(this._db);
@@ -87,15 +110,13 @@ class TransactionRepository {
     String? ownerId,
     String? id,
   }) {
-    if (amountCents <= 0) {
-      throw ArgumentError.value(amountCents, 'amountCents', '金额必须为正整数（分）');
-    }
-    if (bookId.isEmpty || accountId.isEmpty) {
-      throw ArgumentError('bookId 与 accountId 为必填');
-    }
-    if (type != 'transfer' && (categoryId == null || categoryId.isEmpty)) {
-      throw ArgumentError('$type 类型必须指定 categoryId');
-    }
+    _validateTransactionInput(
+      bookId: bookId,
+      accountId: accountId,
+      type: type,
+      amountCents: amountCents,
+      categoryId: categoryId,
+    );
     final now = DateTime.now().millisecondsSinceEpoch;
     return _db
         .into(_db.transactions)
@@ -430,19 +451,60 @@ class TransactionRepository {
         .getSingleOrNull();
     if (existing != null) return ImportDuplicate(existing);
 
-    final tx = await create(
+    // 并发竞争（P3）：预查之后、插入之前，另一个入口（另一次导入 / 自动记账）
+    // 可能已经写入了同指纹行。这里**不用「插失败再 catch」**，而是 `INSERT OR IGNORE`：
+    //
+    //   ① 撞 `(book_id, fingerprint)` 唯一索引时静默不写，不产生异常 → 外层事务不会被打断，
+    //      整批导入不会因为「这笔其实早就有了」而回滚成「导入失败」；
+    //   ② 异常驱动的写法在 SQLite 上还有个坑：`ABORT` 会回滚**整条语句**（含触发器里写入的行），
+    //      失败后再回查什么都查不到，只能 `rethrow` —— 那就等于没兜住。
+    //
+    // 校验（金额 / accountId / categoryId）与 `create` 共用同一套 —— 指纹分支自己拼
+    // companion 直插，漏掉这步就会把「分类缺失」的 expense 写进库。
+    _validateTransactionInput(
       bookId: bookId,
       accountId: accountId,
       type: type,
       amountCents: amountCents,
-      occurredAt: occurredAt,
       categoryId: categoryId,
-      note: note,
-      source: source,
-      fingerprint: fp,
-      transferGroupId: transferGroupId,
-      ownerId: ownerId,
     );
-    return ImportOk(tx);
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    final TxRow? inserted = await _db
+        .into(_db.transactions)
+        .insertReturningOrNull(
+          TransactionsCompanion.insert(
+            id: uuidV4(),
+            bookId: bookId,
+            accountId: accountId,
+            type: type,
+            amountCents: amountCents,
+            occurredAt: occurredAt,
+            createdAt: now,
+            updatedAt: now,
+            categoryId: Value(categoryId),
+            note: Value(note),
+            source: Value(source),
+            fingerprint: Value(fp),
+            transferGroupId: Value(transferGroupId),
+            ownerId: Value(ownerId),
+          ),
+          mode: InsertMode.insertOrIgnore,
+        );
+    if (inserted != null) return ImportOk(inserted);
+
+    // 被忽略了 = 唯一索引挡住了：回查那笔已存在的，归为 duplicate（幂等口径）。
+    final TxRow? raced = await (_db.select(
+      _db.transactions,
+    )..where(
+          (t) =>
+              t.bookId.equals(bookId) &
+              t.fingerprint.equals(fp) &
+              t.deletedAt.isNull(),
+        ))
+        .getSingleOrNull();
+    if (raced != null) return ImportDuplicate(raced);
+    // 既没写进去、又查不到同指纹行 → 被别的约束（非空 / 外键）挡住了。明确报错，
+    // 不要假装成功，也不要吐出「重复」误导用户。
+    throw StateError('入账被数据库忽略，且查不到同指纹记录（bookId=$bookId）');
   }
 }

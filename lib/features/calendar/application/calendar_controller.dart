@@ -164,6 +164,25 @@ class CalendarController extends Notifier<CalendarState> {
     _disposed = false;
     _refreshQueued = false;
     ref.onDispose(() => _disposed = true);
+    // P3：换账本时**重建自己**。
+    //
+    // 这个控制器刻意不 watch 账本（日历翻月不该把首页月份带走），代价是：换账本后
+    // 实例还活着，在途请求也不会被 `_disposed` 拦住 —— 旧账本的结果会被写进新账本的视图。
+    // 只比对 `bookId` 也没用（在途请求手里拿的旧 id 与字段里的旧 id 永远相等），
+    // 所以在这里监听：账本真的换了就 invalidateSelf，旧实例 dispose → 迟到结果全丢，
+    // 新实例按新账本重新加载。
+    //
+    // 只认「非 null → 另一个非 null」：启动时 null → 首个账本是正常初始化，不该重置。
+    ref.listen<AsyncValue<String?>>(activeBookIdProvider, (
+      AsyncValue<String?>? prev,
+      AsyncValue<String?> next,
+    ) {
+      final String? before = prev?.value;
+      final String? after = next.value;
+      if (before != null && after != null && before != after) {
+        ref.invalidateSelf();
+      }
+    });
     final DateTime now = DateTime.now();
     // 首帧：网格 + 选中今天；两段数据都是 loading。
     // 真正的加载放在 build 之后（不能在这里 await，否则首帧又变成整页转圈）。
@@ -318,9 +337,14 @@ class CalendarController extends Notifier<CalendarState> {
   }
 
   /// 软删除一笔并刷新（不物理删，DB 里 deleted_at 非空）。
-  Future<void> removeTx(String id) async {
-    await ref.read(transactionRepositoryProvider).softDelete(id);
+  ///
+  /// 返回**是否真的删掉了**（受影响行数 > 0）；P3：行可能已被首页 / 搜索删过。
+  Future<bool> removeTx(String id) async {
+    final int changed = await ref
+        .read(transactionRepositoryProvider)
+        .softDelete(id);
     await refresh();
+    return changed > 0;
   }
 
   /// 撤销软删：返回可识别的结果；只有恢复成功才刷新。
