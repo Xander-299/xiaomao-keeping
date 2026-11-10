@@ -89,6 +89,11 @@ __pycache__/
 # 本地任务书（只给本机的 agent 看，不进版本库；docs/spec/ 里的 SPEC 才是入库的那份）
 /Prompt.md
 
+# Agent 规则文件属本地开发环境配置，不进仓库（2026-11-10 用户裁定；
+# 仓库内规则单一真相 = HANDOFF.md + docs/spec/ + docs/handoff/）
+/AGENTS.md
+/CLAUDE.md
+
 # ── 2026-10-29 审计补充 ─────────────────────────────────────────────
 # 性能测试原始数据（每次跑都会新增，只留报告在 docs/perf/）
 /performance-results/
