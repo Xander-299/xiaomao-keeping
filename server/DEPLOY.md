@@ -1,10 +1,14 @@
 # 部署跑一遍（Cloudflare Workers）
 
 > 目标：拿到一个 `https://xiaomao-sync.<你的子域>.workers.dev`（或自定义域名），
-> 能发验证码、能上传/下载备份。
+> 能发验证码、能上传/下载备份。全程 **10–15 分钟**，除发信外都在免费额度内。
 >
-> 全程 **10–15 分钟**，除发信服务外都在 Cloudflare 免费额度内。
-> 所有命令都可以在 **WSL 或 Windows PowerShell** 里跑，下面以 WSL 为例。
+> 两条路，选一条即可：
+> - **方案 A（命令行）**：§0–§11，本机装 wrangler，`wrangler deploy`。
+> - **方案 B（全在 Dashboard 点）**：跳到 [§12](#12--方案-b全程在-cloudflare-面板点不装命令行)，连 GitHub 自动构建。
+>
+> **不要用 Pages**：这个服务端没有静态资源，Pages Functions 只是多一层（绑定要在 Pages 项目里另配），
+> 官方现在也建议新项目直接用 Workers。
 
 ## 0 · 前置检查
 
@@ -188,3 +192,89 @@ wrangler deployments list                 # 看历史版本
 wrangler rollback                         # 回上一个版本
 wrangler delete                           # 删掉 Worker（D1/R2 里的数据要另外删）
 ```
+
+---
+
+## 12 · 方案 B：全程在 Cloudflare 面板点（不装命令行）
+
+适合不想在本机装 node/wrangler 的人。代价：**改代码要 push 才生效**，且免费版构建有额度限制。
+
+### 12.1 先建资源（面板能建，无需命令行）
+
+| 步骤 | 位置 | 做什么 |
+|---|---|---|
+| 1 | Dashboard → **Storage & Databases → D1** → Create database | 名字 `xiaomao-sync`；建好后页面顶部有 **Database ID**，复制 |
+| 2 | Dashboard → **R2** → Create bucket | 名字 `xiaomao-backups`（首次用 R2 要绑卡，免费额度内不扣费） |
+| 3 | D1 → 选中 `xiaomao-sync` → **Console** 标签 | 把 `server/schema.sql` 全文粘进输入框 → **Execute**（全是 `IF NOT EXISTS`，可重复跑） |
+| 4 | 本地仓库 `server/wrangler.jsonc` | 把 `"database_id": "REPLACE_WITH_D1_DATABASE_ID"` 换成第 1 步的 id，**push 到 master** |
+
+> 第 4 步是必须的：仓库里那份 wrangler 配置就是构建时用的配置，id 不对 deploy 一定失败。
+
+### 12.2 建 Worker（连 GitHub，自动构建）
+
+1. Dashboard → **Workers & Pages** → **Create** → **Workers** 标签 → **Import a repository**
+   （按钮措辞会随版本变，大意是「从 Git 导入」；第一次会要求授权 GitHub，选你的账号并允许访问本仓库）。
+2. 选仓库 `Xander-299/xiaomao-keeping`，生产分支 **`master`**。
+3. 构建配置三项（**这里填错是最常见的失败原因**）：
+
+| 字段 | 填什么 | 为什么 |
+|---|---|---|
+| **Root directory** | `server` | 不填会去仓库根找 `wrangler.jsonc`，找不到直接失败 |
+| **Build command** | `npm install` | 把 `wrangler` 装进构建环境（它在 devDependencies 里） |
+| **Deploy command** | `npx wrangler deploy` | 默认值就是它，确认一下即可 |
+
+4. 点 **Deploy / Save and Deploy**。构建日志里会打印：
+
+```
+Uploaded xiaomao-sync
+  https://xiaomao-sync.<你的子域>.workers.dev
+```
+
+### 12.3 配密钥与变量
+
+Worker → **Settings** → **Variables and Secrets** → Add：
+
+| 名称 | 类型 | 值 |
+|---|---|---|
+| `JWT_SECRET` | **Secret** | 随机长串（`openssl rand -base64 48`，或密码管理器生成 48 位） |
+| `CODE_PEPPER` | **Secret** | 另一个随机长串（**不要和上面相同**） |
+| `MAIL_FROM` | 明文 | `小耄记账 <no-reply@你的域名>` |
+| `RESEND_API_KEY` | **Secret** | 用 Resend 发信时填（见 §7） |
+
+> ⚠️ 变量改完必须**再 Deploy 一次**才生效（面板会提示 Redeploy）。密钥一旦 Save 就只能覆盖、不能回看。
+
+### 12.4 绑自定义域名（国内强烈建议）
+
+Worker → **Settings** → **Domains & Routes** → Add → **Custom domain** → 填 `sync.你的域名`
+（域名需已托管在 Cloudflare）。证书 1–2 分钟签发，然后 `curl -i https://sync.你的域名/v1/backups` 应返回 **401**。
+
+### 12.5 以后怎么更新
+
+推到 `master` 且改动落在 `server/**` 时，Workers Builds 会自动重新构建部署。
+不想每次 push 都触发 → Builds 的 **Build watch paths** 设成 `server/*`。
+
+### 12.6 方案 B 常见失败
+
+| 报错 | 原因 |
+|---|---|
+| `Could not find wrangler.jsonc` | Root directory 没填 `server` |
+| `Couldn't find a D1 DB with that name/id` | §12.1 第 4 步没做，或 id 拼错 |
+| `wrangler: not found` | Build command 没装依赖；改成 `npm install` |
+| 部署成功但 `request-code` 返回 503 | `MAIL_FROM` / `RESEND_API_KEY` 没配或没 redeploy |
+| 改了变量不生效 | 忘了 Redeploy |
+
+### 12.7 为什么不用 Pages
+
+- Pages 的定位是「静态站点 + 可选 Functions」，我们没有静态资源，等于白背一套构建流程；
+- Pages Functions 的 D1/R2 绑定要在 **Pages 项目设置**里另配一遍，而 Workers 直接读 `wrangler.jsonc`，只有一份真相；
+- Cloudflare 官方现在建议新项目用 Workers（Pages 仍在维护，但不再是推荐路径）。
+
+### 12.8 方案对比
+
+| | 方案 A（CLI） | 方案 B（Dashboard + Git） |
+|---|---|---|
+| 前置 | 本机 node + wrangler | 只要浏览器 |
+| 首次部署 | 5 条命令 | 点 6 下 + 填 3 个字段 |
+| 改配置 | 改完 `wrangler deploy` | push 后自动构建 |
+| 密钥 | `wrangler secret put` | 面板 Variables and Secrets |
+| 适合 | 频繁改服务端 | 一次性上线、不想碰命令行 |
