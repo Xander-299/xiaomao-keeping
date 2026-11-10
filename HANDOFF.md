@@ -12,11 +12,28 @@
 | 项 | 值 |
 |---|---|
 | 交付状态 | F1–F7.17 + **F8.1 阶段一「端上截图记账」全部交付**，最新 tag **`v0.8.3`**（2026-11-09 · A+B+C 数据一致性 + 三 ABI 包，[验收记录](docs/acceptance-v0.8.3.md)）。F8.1 真机走查 7 项全过（[验收报告](docs/acceptance-F8.1-receipt.md)）。**v0.8.2 = 改名「小耄记账」+ 橙底小猫图标首次进正式包**（同时收进 v0.8.1 之后一直未发版的 F7.18 分类树 / 预置二级 / 主题色 / 日历分段 / 问答聊天化）。阶段二：**任务 1 基准表已实测**（[报告](docs/dev/llm-benchmark.md)）+ **M1「问账本」+ 首页聊天化已交付并真机走查通过**（`/chat` 统一「记一笔 / 问一句」；`/assistant` 与 `/receipt` 已并入；MuMu + 真实微信账单 161 行） |
-| 下一步 | ~~M2 本地模型~~ **⏸ 已搁置（2026-10-28 用户裁定）**。**v0.8.3 已发布（2026-11-09，三个 ABI 包）**。最近的待办：① `docs/handoff/open-issues.md` 里 5 个 P3 未修 ② 旧 Pages 地址 `…/yanxin-keeping/` 仍是 404（如需可建同名空仓库放跳转页）③ P5 候选：非布尔模块参数、导航项自定义、云同步布局。更早的候选：分类 4 项遗留、导入规则扩容、FR-BUDGET-10 分类级预算、帧率采集 |
+| 下一步 | ~~M2 本地模型~~ **⏸ 已搁置（2026-10-28 用户裁定）**。**v0.8.3 已发布（2026-11-09，三个 ABI 包）**。5 条 P3 已于 2026-11-10 清完（PR #25）。最近的待办：① 旧 Pages 地址 `…/yanxin-keeping/` 仍是 404（如需可建同名空仓库放跳转页）② P5 候选：非布尔模块参数、导航项自定义、云同步布局 ③ 真机「SAF 选文件 → 导入旧备份」走查未完成（用户 2026-11-10 暂停）。更早的候选：分类 4 项遗留、导入规则扩容、FR-BUDGET-10 分类级预算、帧率采集 |
 | 技术栈 | Flutter 3.47.2 / Dart 3.13.2 · drift 2.31.0 · Riverpod 3 · go_router 18 · **Material 3 主题（2026-11-10 起默认 seed = 琥珀 `0xFFFFB627` + 外观默认「浅色」，五个色种可选）** · **ML Kit 文字识别（中文 bundled，离线）** · 本地 LLM 探针 = **llama.cpp `b7050`**（仅 `tool/llm_bench/`，**未进 App**） |
 | 数据库 | schema **v5**（v2 加 `budgets`；v3 加 `accounts.icon/color`；v4 加 `categories.parent_id / is_archived`；**v5 把流水指纹唯一性从全局改为 `(book_id, fingerprint)`**，A1）。v4→v5 **只替换索引**，不重建表、不改既有行。**预置二级分类不需要迁移**（是数据不是结构） |
 | 门禁 | 本地 = `flutter analyze` + `flutter test --concurrency=1`（本机受沙箱写缓存限制跑不了，以 CI `test` job 输出为准，约 **800 passed / 6 skipped**）；CI = `.github/workflows/ci.yml`，**四个并行 job**：① `analyze · 生成物同步` ② `test` ③ `build apk (debug)` ④ **`release · 插件与版本物检`**（release 构建后跑 `tool/release_preflight.py`，见下）。本机 `flutter analyze` 在这台 WSL 上会假死，用 `dart analyze lib test` 或 CI 代替；跑测试**必须** `--concurrency=1`（内存不足 OOM） |
 | 仓库 | **GitHub `Xander-299/xiaomao-keeping`（public，2026-11-09 由 `yanxin-keeping` 改名）** · Pages <https://xander-299.github.io/xiaomao-keeping/> · 规则集 `check-ci`：required checks = `analyze · 生成物同步` / `test` / `build apk (debug)` / `release · 插件与版本物检`（最后一项需在 Settings 里手动勾），approvals 0，禁 force-push / 禁删默认分支（**直推 master 会被挡，必须走 PR**；管理员可 bypass） |
+
+### 本轮交付（2026-11-10 · 5 条 P3 遗留清零，PR #25）
+
+> 来源：`docs/handoff/open-issues.md` 第 10 条（2026-11-03 A+B+C 复审遗留，当时为控范围没修）。
+> 每条都带回归测试；CI 四闸门全绿（809 passed / 6 skipped）。
+
+| 项 | 修法 |
+|---|---|
+| ① 导入指纹并发竞争 | `importTransaction` 的插入改用 **`InsertMode.insertOrIgnore`**：撞 `(book_id, fingerprint)` 唯一索引静默不写 → 回查同指纹行 → `ImportDuplicate`；既没写进去又查不到才抛 `StateError`。**别改回「插失败 + catch 回查」**：SQLite 的 `ABORT` 会回滚整条语句（含触发器写入的行），失败后查不到任何东西，等于没兜住（第一版这么写，CI 当场红） |
+| ② 删除不检查 affected rows | `LedgerController.removeTx` / `CalendarController.removeTx` 返回 `bool`；首页 / 日历 / 搜索在 0 行时只刷新 + `kTxAlreadyGoneMessage`（「这笔流水已经不在了，列表已刷新」），**不弹 Undo**（撤销会把用户没删过的记录恢复出来，语义反了） |
+| ③ 自动记账撤销失败不留痕 | `AutoBookNoticeNotifier.undo` 失败时把「撤销批次 <id> 失败：<80 字摘要>」写进 `autobook_last_run` 并 bump `dataEpoch`，异常照旧抛出；只写 error，不动 imported / duplicates |
+| ④ 分类 `undelete()` 非事务 | 整段包进 `_db.transaction<bool>`，事务内重做全部校验；UPDATE 用受影响行数兜底（并发下被别人先恢复 / 又删一次时返回 false，不假报成功） |
+| ⑤ 日历请求有效性不含 bookId | `CalendarController.build()` 里 `ref.listen(activeBookIdProvider)`，值真变了（非 null → 另一个非 null）就 `invalidateSelf()`：旧实例 dispose → 迟到结果全丢。**没有**让控制器到处 watch 账本 —— 那会把这轮「翻月不动首页月份」的隔离性弄丢 |
+
+**新增回归测试**：`transaction_import_race_test`（`BEFORE INSERT` trigger 造并发）/ `category_undelete_atomic_test`（撞名 + 写入 ABORT）/ `calendar_delete_confirm_test` 新增「已被别处删掉」/ `auto_book_undo_failure_test` / `calendar_book_switch_test`。
+
+**又一个坑**：`importTransaction` 的指纹分支自己拼 companion 直插后，**漏调了 `create()` 里的入参校验**，于是「分类缺失」不再抛错、直接把 `categoryId = null` 的 expense 写进库 —— `bill_importer_test` 的「非 duplicate 异常 → 整体回滚」抓到了。现已抽成 `_validateTransactionInput()` 由两处共用。
 
 ### 本轮交付（2026-11-10 · 设置主题化 + 树形首页布局 + 备份可回灌，PR #21）
 
