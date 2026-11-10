@@ -1,4 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- P6.1（2026-11-10 产品改判）：为「云同步 / 云备份」放行网络权限。
+         ⚠️ 这条权限**不是**给后台偷偷上报用的：
+          - 不登录 = 不发任何请求（`CloudSyncGate` 在未登录时连 socket 都不建）；
+          - 全链路 HTTPS，明文在 `res/xml/network_security_config.xml` 里全局禁掉；
+          - 服务器地址写死在 `core/network/sync_endpoints.dart`，不做动态下发。
+         改动前的历史：这里曾有「release 包必须剥掉 INTERNET」的不变量（F8.1 为挡 ML Kit
+         用量上报而加），P6 起作废 —— 详见 HANDOFF 不变量 #8 的新口径。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- F7.15 自动记账：回执通知（Android 13+ 运行时权限，用户主动开启时才申请）。
          通知监听不需要在这里声明权限 —— 它是 <service> 的 android:permission 属性。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -8,6 +16,7 @@
     <application
         android:label="小耄记账"
         android:name="${applicationName}"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

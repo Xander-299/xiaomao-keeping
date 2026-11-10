@@ -52,7 +52,9 @@ class ChatEntryCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  '本地算 · 不上传',
+                  // P6.1 起不再写「不上传」：云同步立项后这句话不再无条件成立，
+                  // 改成只说确定的那半句（问答本身在端上算）。
+                  '本地算',
                   style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: p.ink3),
                 ),
               ],
