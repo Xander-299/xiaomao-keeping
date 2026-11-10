@@ -9,6 +9,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/ui_kit/app_page_state.dart';
 
@@ -207,7 +208,7 @@ class _LayoutListState extends ConsumerState<_LayoutList> {
                         if (hasChildren && expanded && on)
                           for (final DashboardParamSpec spec
                               in module.childSpecs)
-                            _ChildToggle(
+                            _ParamRow(
                               key: ValueKey<String>(
                                 'dashboard_child_${id}_${spec.id}',
                               ),
@@ -227,9 +228,14 @@ class _LayoutListState extends ConsumerState<_LayoutList> {
   }
 }
 
-/// 二级开关行：比一级小一号（文字 11.5 / 开关缩小 40%），带树形缩进。
-class _ChildToggle extends ConsumerWidget {
-  const _ChildToggle({
+/// 二级参数行：比一级小一号（文字 11.5），带树形缩进。
+///
+/// 三种控件（P5）：
+/// - `toggle` → 小开关（26×38，`FittedBox` 缩放；整行可点）
+/// - `choice` → 一行小 chips（只有 chip 可点，行本身不响应，避免误触）
+/// - `count`  → 减 / 值 / 加 步进器（到边界后按钮置灰）
+class _ParamRow extends ConsumerWidget {
+  const _ParamRow({
     super.key,
     required this.moduleId,
     required this.spec,
@@ -243,57 +249,196 @@ class _ChildToggle extends ConsumerWidget {
     final ToonPalette p = context.toon;
     final DashboardConfig config =
         ref.watch(dashboardConfigProvider).value ?? DashboardConfig.defaults;
-    final bool value = DashboardParamSpec.boolValue(
-      paramsOf(config.params, moduleId),
-      spec,
+    final Map<String, Object?>? params = paramsOf(config.params, moduleId);
+    void set(Object value) => unawaited(
+      ref.read(dashboardConfigProvider.notifier).setParam(moduleId, spec.id, value),
     );
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: () => unawaited(
-        ref
-            .read(dashboardConfigProvider.notifier)
-            .setParam(moduleId, spec.id, !value),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 30, top: 2, bottom: 2, right: 4),
-        child: Row(
-          children: <Widget>[
-            Icon(
-              Icons.subdirectory_arrow_right_rounded,
-              size: 13,
-              color: p.ink3,
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                spec.title,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                  color: p.ink2,
-                ),
-              ),
-            ),
-            SizedBox(
-              height: 26,
-              width: 38,
-              child: FittedBox(
-                fit: BoxFit.contain,
-                child: Switch(
-                  key: ValueKey<String>(
-                    'dashboard_param_${moduleId}_${spec.id}',
-                  ),
-                  value: value,
-                  onChanged: (bool v) => unawaited(
-                    ref
-                        .read(dashboardConfigProvider.notifier)
-                        .setParam(moduleId, spec.id, v),
-                  ),
-                ),
-              ),
-            ),
-          ],
+
+    final Widget control = switch (spec.kind) {
+      DashboardParamKind.toggle => SizedBox(
+        height: 26,
+        width: 38,
+        child: FittedBox(
+          fit: BoxFit.contain,
+          child: Switch(
+            key: ValueKey<String>('dashboard_param_${moduleId}_${spec.id}'),
+            value: spec.boolOf(params),
+            onChanged: set,
+          ),
         ),
+      ),
+      DashboardParamKind.choice => _ChoiceRow(
+        moduleId: moduleId,
+        spec: spec,
+        current: spec.choiceOf(params),
+        onPick: set,
+      ),
+      DashboardParamKind.count => _CountStepper(
+        moduleId: moduleId,
+        spec: spec,
+        current: spec.countOf(params),
+        onSet: set,
+      ),
+    };
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 30, top: 2, bottom: 2, right: 4),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            Icons.subdirectory_arrow_right_rounded,
+            size: 13,
+            color: p.ink3,
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              spec.title,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: p.ink2,
+              ),
+            ),
+          ),
+          control,
+        ],
+      ),
+    );
+  }
+}
+
+/// 几选一：一排小 chips。选中 = 品牌浅底 + 墨色描边。
+class _ChoiceRow extends StatelessWidget {
+  const _ChoiceRow({
+    required this.moduleId,
+    required this.spec,
+    required this.current,
+    required this.onPick,
+  });
+
+  final String moduleId;
+  final DashboardParamSpec spec;
+  final String current;
+  final ValueChanged<String> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final ToonPalette p = context.toon;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        for (final DashboardParamOption o in spec.options)
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: GestureDetector(
+              key: ValueKey<String>(
+                'dashboard_param_${moduleId}_${spec.id}_${o.value}',
+              ),
+              onTap: () => onPick(o.value),
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: o.value == current ? p.brandTint : p.paper,
+                  borderRadius: BorderRadius.circular(999),
+                  border: p.inkBorder(w: o.value == current ? Tok.bw : Tok.bw * 0.7),
+                ),
+                child: Text(
+                  o.label,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: o.value == current ? p.ink : p.ink2,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 小整数：减 / 值 / 加。到边界后那侧的按钮变成不可点（不隐藏，避免行高跳动）。
+class _CountStepper extends StatelessWidget {
+  const _CountStepper({
+    required this.moduleId,
+    required this.spec,
+    required this.current,
+    required this.onSet,
+  });
+
+  final String moduleId;
+  final DashboardParamSpec spec;
+  final int current;
+  final ValueChanged<int> onSet;
+
+  @override
+  Widget build(BuildContext context) {
+    final ToonPalette p = context.toon;
+    final bool canMinus = current > spec.min;
+    final bool canPlus = current < spec.max;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _StepButton(
+          key: ValueKey<String>('dashboard_param_${moduleId}_${spec.id}_minus'),
+          icon: Icons.remove_rounded,
+          enabled: canMinus,
+          onTap: () => onSet(current - 1),
+        ),
+        SizedBox(
+          width: 22,
+          child: Text(
+            '$current',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: p.ink2,
+            ),
+          ),
+        ),
+        _StepButton(
+          key: ValueKey<String>('dashboard_param_${moduleId}_${spec.id}_plus'),
+          icon: Icons.add_rounded,
+          enabled: canPlus,
+          onTap: () => onSet(current + 1),
+        ),
+      ],
+    );
+  }
+}
+
+class _StepButton extends StatelessWidget {
+  const _StepButton({
+    super.key,
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ToonPalette p = context.toon;
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 24,
+        height: 24,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: enabled ? p.paper : p.track,
+          borderRadius: BorderRadius.circular(7),
+          border: p.inkBorder(w: Tok.bw * 0.7),
+        ),
+        child: Icon(icon, size: 14, color: enabled ? p.ink2 : p.ink3),
       ),
     );
   }

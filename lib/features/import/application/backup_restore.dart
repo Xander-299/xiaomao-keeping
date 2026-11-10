@@ -14,10 +14,12 @@ import 'package:drift/drift.dart' hide isNull;
 import '../../../core/db/database.dart';
 import '../../../core/utils/fingerprint.dart';
 import '../../../data/repositories/account_repository.dart';
+import '../../../data/repositories/app_meta_repository.dart';
 import '../../../data/repositories/book_repository.dart';
 import '../../../data/repositories/budget_repository.dart';
 import '../../../data/repositories/category_repository.dart';
 import '../../../data/repositories/transaction_repository.dart';
+import 'backup_settings.dart';
 
 /// 备份文件的 schema 版本标记（与 `csv_export.dart` 的 `kBackupSchemaVersion` 对应）。
 const String kBackupSourceTag = '小耄记账备份';
@@ -35,6 +37,7 @@ class BackupRestoreReport {
     this.createdAccounts = 0,
     this.createdCategories = 0,
     this.budgetsRestored = 0,
+    this.settingsRestored = 0,
   });
 
   final int dataRows;
@@ -52,6 +55,9 @@ class BackupRestoreReport {
   int createdCategories;
   int budgetsRestored;
 
+  /// 随备份恢复的外观 / 布局设置项数（0 = 备份里没有这段，或用户选择不恢复）。
+  int settingsRestored;
+
   /// 落库数据的最新月份（供导入页的「跳转到该月」入口）。
   ({int year, int month})? latestMonth;
 }
@@ -66,6 +72,20 @@ bool looksLikeBackupJson(List<int> bytes) {
   return head.contains('"schemaVersion"') && head.contains('"transactions"');
 }
 
+/// 备份里是否带 `settings` 段（决定导入页要不要问「一并恢复外观与布局」）。
+///
+/// 单独一个函数而不是让调用方自己解一遍 JSON：解析口径只此一处，坏文件一律 false。
+bool backupHasSettings(List<int> bytes) {
+  try {
+    final Object? decoded = jsonDecode(utf8.decode(bytes));
+    if (decoded is! Map) return false;
+    final Object? settings = (decoded as Map<Object?, Object?>)['settings'];
+    return settings is Map && settings.isNotEmpty;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// 备份 JSON → 恢复报告。解析失败抛 [FormatException]（文案可直接展示）。
 Future<BackupRestoreReport> restoreBackupJson(
   AppDatabase db, {
@@ -73,6 +93,9 @@ Future<BackupRestoreReport> restoreBackupJson(
 
   /// 为 null = 恢复进当前账本；否则按备份里的账本名新建账本。
   required bool createBook,
+
+  /// 是否一并恢复备份里的外观 / 布局设置（默认 true；备份没有 `settings` 段时无副作用）。
+  bool restoreSettings = true,
 }) async {
   final Map<String, Object?> payload;
   try {
@@ -289,6 +312,17 @@ Future<BackupRestoreReport> restoreBackupJson(
     } on Object {
       // 预算失败不阻断流水恢复
     }
+  }
+
+  // ── 设置（P5-A）：白名单内的外观 / 布局原值写回本机 ──
+  //
+  // 放在最后：账本数据恢复失败时不该顺手改掉用户的外观。写失败也不打断恢复流程
+  // （`applyBackupSettings` 内部逐键 try）。
+  if (restoreSettings) {
+    report.settingsRestored = await applyBackupSettings(
+      AppMetaRepository(db),
+      payload['settings'],
+    );
   }
 
   if (latestMs != null) {

@@ -91,14 +91,20 @@ class DashboardConfigController extends AsyncNotifier<DashboardConfig> {
     );
   }
 
-  /// 设置某个模块参数；未知参数由调用方保证（spec 来自模块声明）。
-  Future<void> setParam(String moduleId, String paramId, bool value) async {
+  /// 设置某个模块参数（bool / choice / count 统一走这里）。
+  ///
+  /// 写入前按参数声明归一：值不在选项里、越界、类型不对 —— 一律**回落默认**再写，
+  /// 绝不把脏值落库（否则下次启动读回来还是脏的）。未知参数（模块或参数已被删）直接忽略。
+  Future<void> setParam(String moduleId, String paramId, Object value) async {
+    final DashboardParamSpec? spec = DashboardRegistry.specOf(moduleId, paramId);
+    if (spec == null) return;
+    final Object normalized = spec.coerce(value);
     final DashboardConfig current = state.value ?? DashboardConfig.defaults;
     final DashboardParams next = <String, Map<String, Object?>>{
       ...?current.params,
       moduleId: <String, Object?>{
         ...?current.params?[moduleId],
-        paramId: value,
+        paramId: normalized,
       },
     };
     await save(

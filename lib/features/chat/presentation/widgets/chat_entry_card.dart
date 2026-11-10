@@ -16,11 +16,17 @@ import '../chat_page.dart';
 
 /// 首页入口卡。
 ///
-/// [showSamples] 控制是否显示三个示例问题（首页布局参数，默认开）。
+/// [showSamples] 控制是否显示示例问题（首页布局参数，默认开）；
+/// [sampleCount] 控制显示几条（1–3，另一条布局参数）。
 class ChatEntryCard extends StatelessWidget {
-  const ChatEntryCard({super.key, this.showSamples = true});
+  const ChatEntryCard({
+    super.key,
+    this.showSamples = true,
+    this.sampleCount = 3,
+  });
 
   final bool showSamples;
+  final int sampleCount;
 
   void _open(BuildContext context, {bool image = false, String? question}) {
     context.push('/chat', extra: ChatLaunch(openImagePicker: image, question: question));
@@ -92,12 +98,12 @@ class ChatEntryCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
-            if (showSamples)
+            if (showSamples && sampleCount > 0)
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: <Widget>[
-                  for (final String q in kExampleQuestions.take(3))
+                  for (final String q in kExampleQuestions.take(sampleCount))
                     _MiniChip(label: q, onTap: () => _open(context, question: q)),
                 ],
               ),

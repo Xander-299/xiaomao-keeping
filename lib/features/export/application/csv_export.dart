@@ -127,9 +127,11 @@ String buildBillCsv({
 String _nameOf(Map<String, String> names, String? id) =>
     id == null ? '' : (names[id] ?? '');
 
-/// 备份 JSON（当前账本全量：账本 / 账户 / 分类 / 流水 / 预算）。
+/// 备份 JSON（当前账本全量：账本 / 账户 / 分类 / 流水 / 预算 + 可选的外观与布局设置）。
 ///
 /// 金额一律**整数分**；`dirty`（本地同步标记）不导出 —— 它不是用户数据。
+/// [settings] 是白名单内的 `schema_meta` 原值（见 `backup_settings.dart`），
+/// 空 / null 时不写这个键 —— 老备份本来就该长得跟以前一样。
 /// 传 `exportedAtMs` 而不是内部取 `now()`，便于单测固定输出。
 String buildBackupJson({
   required Book book,
@@ -138,6 +140,7 @@ String buildBackupJson({
   required List<TxRow> transactions,
   required List<BudgetRow> budgets,
   required int exportedAtMs,
+  Map<String, Object?>? settings,
 }) {
   final Map<String, Object?> payload = <String, Object?>{
     'schemaVersion': kBackupSchemaVersion,
@@ -151,6 +154,7 @@ String buildBackupJson({
       for (final TxRow t in transactions) _txJson(t),
     ],
     'budgets': <Map<String, Object?>>[for (final BudgetRow b in budgets) _budgetJson(b)],
+    if (settings != null && settings.isNotEmpty) 'settings': settings,
   };
   return const JsonEncoder.withIndent('  ').convert(payload);
 }

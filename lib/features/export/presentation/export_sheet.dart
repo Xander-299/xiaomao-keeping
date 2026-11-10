@@ -20,6 +20,7 @@ import 'package:yanxin/data/providers/category_providers.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/ui_kit/app_sheet_header.dart';
 
+import '../../import/application/backup_settings.dart';
 import '../application/csv_export.dart';
 
 /// CSV 的 MIME（SAF 用它决定默认后缀过滤）。
@@ -147,6 +148,10 @@ class _ExportSheetState extends ConsumerState<_ExportSheet> {
       if (book == null) {
         throw StateError('当前账本未就绪');
       }
+      // 换机时布局 / 外观一起走（白名单见 backup_settings.dart）
+      final Map<String, Object?> settings = await collectBackupSettings(
+        ref.read(appMetaRepositoryProvider),
+      );
       final String json = buildBackupJson(
         book: book,
         accounts: data.accounts,
@@ -154,6 +159,7 @@ class _ExportSheetState extends ConsumerState<_ExportSheet> {
         transactions: data.rows,
         budgets: data.budgets,
         exportedAtMs: nowMs,
+        settings: settings,
       );
       final Uri? saved = await FilePicker.saveFile(
         fileName: fileName,

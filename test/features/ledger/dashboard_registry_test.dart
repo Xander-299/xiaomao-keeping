@@ -91,7 +91,10 @@ void main() {
   test('参数默认值：未配置时走 spec.defaultValue', () {
     final DashboardModule budget = DashboardRegistry.modules
         .firstWhere((m) => m.id == 'budget_strip');
-    final DashboardParamSpec spec = budget.childSpecs.single;
+    // P5 起 budget_strip 有两个子参数（show_daily / detail），不能再按「唯一一个」取。
+    final DashboardParamSpec spec = budget.childSpecs.firstWhere(
+      (DashboardParamSpec s) => s.id == 'show_daily',
+    );
 
     expect(spec.id, 'show_daily');
     expect(spec.defaultValue, isTrue);
