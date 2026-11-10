@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+.dev.vars
+dist/
+
+# 部署机自己 `npm install` 生成即可（本仓库未锁：只有 3 个开发依赖，
+# 且 lockfile 会记录平台相关的可选包，锁在这台 WSL 上对别人没意义）
+package-lock.json

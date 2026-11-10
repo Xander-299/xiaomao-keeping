@@ -1,0 +1,7 @@
+# 本地开发用（`wrangler dev --local`）。**不要提交 .dev.vars**。
+# 生产用 `wrangler secret put <名字>` 注入。
+JWT_SECRET=dev-only-change-me-32-bytes-min
+CODE_PEPPER=dev-only-another-secret
+MAIL_FROM=小耄记账 <no-reply@example.com>
+# 本地没有发信通道：置 1 让验证码打到 wrangler 控制台
+DEV_ECHO_CODE=1

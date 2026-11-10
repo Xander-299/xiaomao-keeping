@@ -108,3 +108,6 @@ __pycache__/
 
 # JVM 崩溃转储（Gradle / JVM 崩了会在工作目录留下）
 *.hprof
+
+# 本地 npm 缓存（沙箱里 HOME 不可写，npm 缓存指到工作区）
+/.npm-cache/
