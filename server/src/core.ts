@@ -23,12 +23,17 @@ export function b64url(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** base64url → 字节。 */
-export function b64urlDecode(s: string): Uint8Array {
+/** base64url → 字节。
+ *
+ * 显式用 `new Uint8Array(new ArrayBuffer(n))` 而不是 `new Uint8Array(n)`：
+ * 后者在 TS 5.7 的新类型里是 `Uint8Array<ArrayBufferLike>`，喂给 WebCrypto 的
+ * `verify()`（要 `BufferSource`）会报类型不兼容。
+ */
+export function b64urlDecode(s: string): Uint8Array<ArrayBuffer> {
   const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
   const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + pad;
   const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
+  const out = new Uint8Array(new ArrayBuffer(bin.length));
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }

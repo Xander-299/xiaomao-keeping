@@ -45,3 +45,13 @@ CREATE TABLE IF NOT EXISTS backups (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_backups_user ON backups(user_id, created_at DESC);
+
+-- 发码记录（与 auth_codes 分开：登录成功会清掉验证码，但**限流不能跟着清零** ——
+-- 否则「登录一次 → 立刻再发」就能绕过 60 秒冷却与日上限）
+CREATE TABLE IF NOT EXISTS code_sends (
+  email    TEXT NOT NULL,
+  ip       TEXT NOT NULL DEFAULT '',
+  sent_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_code_sends_email ON code_sends(email, sent_at);
+CREATE INDEX IF NOT EXISTS idx_code_sends_ip ON code_sends(ip, sent_at);
