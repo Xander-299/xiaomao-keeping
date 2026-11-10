@@ -2,9 +2,9 @@
 
 # 小耄记账
 
-**把账本留在自己手机里的 Android 记账 App**
+**账本默认只存在手机里的 Android 记账 App**
 
-无账号 · 无服务器 · 无网络请求 · 无广告 · 无埋点
+默认离线可用 · 云同步可选（建设中） · 无广告 · 无埋点
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.47.2-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 [![Android](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)](#)
@@ -208,7 +208,7 @@ presentation（UI）→ application（Controller / 纯函数）→ data（仓储
 | CSV / GBK | 自研逐字符状态机 + `gbk_codec` | 无成熟纯 Dart 方案；回环校验判坏件 |
 | 自动记账 | **Kotlin 原生**（`NotificationListenerService` + `MethodChannel`） | **零新增 pub 依赖**；Dart 侧只做纯函数解析 |
 | 主题 | **Material 3**（`ColorScheme.fromSeed`）+ 可切换 seed | 换一个种子色，整套色板（按钮 / 选中态 / 图表）跟着变，页面零改动 |
-| OCR | **ML Kit 中文 bundled**（自建 MethodChannel，离线） | 模型随 APK，**release 包仍不需要网络权限**；首次识别才初始化 |
+| OCR | **ML Kit 中文 bundled**（自建 MethodChannel，离线） | 模型随 APK，识别全程不联网；首次识别才初始化 |
 | 性能 | **ADB + 自写 PowerShell 脚本**（启动 / PSS / CPU / 体积） | 不引第三方性能库；真机数据可重复、可对比 |
 
 ---
@@ -270,10 +270,17 @@ flutter build apk --release --target-platform android-arm,android-arm64,android-
 
 ## 🔒 数据边界
 
-- **无网络权限**（release 包）：`AndroidManifest` 里没有 `INTERNET`，不存在「说好不联网但偷偷传」的余地。
-  > debug 包会带 `INTERNET`（Flutter 热重载需要），核对权限时别把这条当成矛盾。
-- **无账号体系**：没有登录、没有云端 ID，数据只在应用私有目录的 `yanxin.sqlite`。
-- **可导出**：流水 CSV + 完整备份 JSON，随时可带走。
+> 2026-11-10 起因「云同步」立项而调整口径（[SPEC](docs/spec/SPEC-P6-cloud-sync.md)）。
+> 变化只有一件事：**从"没有联网能力"变成"联网能力只服务于你自己开启的同步"**。
+> 不卖数据、不做行为画像、没有广告与埋点 —— 这条没变。
+
+- **默认不联网**：`INTERNET` 权限只为云同步 / 云备份而存在。**没有登录就不建连接、不发一个字节**
+  （`CloudSyncGate` 卡在请求入口，不依赖调用方自觉）。
+- **只走 HTTPS**：`network_security_config.xml` 全局 `cleartextTrafficPermitted="false"`，
+  明文请求在系统层就被拒；服务器域名写死在代码里，不做动态下发。
+- **账本默认只在本机**：应用私有目录的 `yanxin.sqlite` 是主副本，云端只是多端汇合的副本。
+- **可注销**：注销 = 云端硬删（含备份文件），本机数据不动。
+- **可导出**：流水 CSV + 完整备份 JSON，随时可带走（不依赖云端）。
 
 ---
 

@@ -1,20 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <!-- F8.1：ML Kit 的依赖链（com.google.android.datatransport:transport-backend-cct）会在
-         合并清单里带进 INTERNET 与 ACCESS_NETWORK_STATE。**正式包必须去掉**，
-         因为：
-          1. 本 App 没有任何网络代码，「无网络权限」是 README 里的对外承诺；
-          2. 端上 OCR 用的是 **bundled** 中文模型（模型随 APK，见 app/build.gradle.kts），
-             完全离线运行，不需要联网；
-          3. 去掉 INTERNET 之后，连 ML Kit 自己的用量上报（transport）也**物理上发不出去**，
-             截图与账本数据不可能离开设备 —— 这比"承诺不上传"更硬。
+    <!-- P6.1（2026-11-10 产品改判）：`INTERNET` **不再移除**。
 
-         ⚠️ 只放在 `src/release/`：debug / profile 包需要 INTERNET 跑 Flutter 热重载
-         （VM service 走 TCP，即便连的是 localhost 也要这条权限），
-         所以不能在 `src/main/` 里删。 -->
-    <uses-permission
-        android:name="android.permission.INTERNET"
-        tools:node="remove" />
+         历史：F8.1 时这里用 `tools:node="remove"` 剥掉 `INTERNET` 与 `ACCESS_NETWORK_STATE`，
+         原因是 ML Kit 的依赖链（`com.android.datatransport:transport-backend-cct`）会把它们
+         合并进清单，而当时本 App 没有任何网络代码 —— 剥掉之后连用量上报都物理上发不出去。
+
+         现在云同步 / 云备份要联网，所以：
+          - `INTERNET` 保留（声明在 `src/main/AndroidManifest.xml`）；
+          - `ACCESS_NETWORK_STATE` 仍然移除 —— 第一版不做「断网自动暂停」，同步失败一律按
+            指数退避重试处理，不需要读网络状态（少一个权限少一份解释成本）。
+
+         ⚠️ 网络能力的边界不再靠「没有权限」，而是靠这两条：
+          1. `res/xml/network_security_config.xml` 全局禁明文（连 http:// 都发不出去）；
+          2. Dart 侧 `CloudSyncGate` —— 未登录时连 socket 都不建（P6.2 落地）。 -->
     <uses-permission
         android:name="android.permission.ACCESS_NETWORK_STATE"
         tools:node="remove" />

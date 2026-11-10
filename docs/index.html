@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<title>小耄记账 · 本地优先的 Android 记账 App</title>
-<meta name="description" content="小耄记账：一个把数据完全留在手机里的 Android 记账 App。Flutter + drift，无账号、无服务器、无网络请求。">
-<!-- 单文件、零外部依赖（字体 / 图片 / JS 全内联）—— 与 App 的「不联网」保持同一个立场 -->
+<title>小耄记账 · 账本默认只存在手机里的 Android 记账 App</title>
+<meta name="description" content="小耄记账：账本默认只存在手机里的 Android 记账 App。Flutter + drift，默认离线可用，云同步可选。">
+<!-- 单文件、零外部依赖（字体 / 图片 / JS 全内联）—— 与 App 的「默认本地」保持同一个立场 -->
 <style>
   :root{
     /* 与 lib/core/theme/tokens.dart 的 Tok 令牌一一对应 */
@@ -167,11 +167,12 @@
   <div class="wrap">
     <div class="hero">
       <div>
-        <span class="eyebrow">📴 本地优先 · Android · Flutter</span>
-        <h1>把账本留在<span class="hl">自己手机里</span></h1>
+        <span class="eyebrow">📴 默认本地 · Android · Flutter</span>
+        <h1>账本默认留在<span class="hl">自己手机里</span></h1>
         <p class="lede">
-          <strong>无账号、无服务器、无网络请求、无广告、无埋点。</strong>
-          账单导入、自动记账、统计预算全部在本地完成；卸载即彻底删除，想留档自己导出。
+          <strong>默认离线可用、无广告、无埋点。</strong>
+          账单导入、自动记账、统计预算全部在本地完成；不登录就不联网。
+          云同步可选（建设中）：登录后多端共享同一本账，注销即云端彻底删除。
         </p>
         <div class="cta">
           <a class="btn" href="https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.3/yanxin-v0.8.3-arm64-v8a-release.apk">⬇ 下载 APK（38.8 MB · arm64）</a>

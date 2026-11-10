@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  P6.1（2026-11-10）：全局禁止明文流量。
+
+  为什么这么硬：这个 App 卖的是「账本不外流」，一旦允许 http://，
+  一个填错的 baseUrl 或一次中间人劫持就能让整本账明文上网。
+  调试期要连本地 http 服务时，**不要**在这里开 `cleartextTrafficPermitted=true` ——
+  用 `adb reverse tcp:8080 tcp:8080` 把服务映射到 127.0.0.1，再在 debug 清单里单独放行
+  （`src/debug/` 有各自的 network-security-config，不进正式包）。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

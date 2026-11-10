@@ -12,7 +12,7 @@
 | 项 | 值 |
 |---|---|
 | 交付状态 | F1–F7.17 + **F8.1 阶段一「端上截图记账」全部交付**，最新 tag **`v0.8.3`**（2026-11-09 · A+B+C 数据一致性 + 三 ABI 包，[验收记录](docs/acceptance-v0.8.3.md)）。F8.1 真机走查 7 项全过（[验收报告](docs/acceptance-F8.1-receipt.md)）。**v0.8.2 = 改名「小耄记账」+ 橙底小猫图标首次进正式包**（同时收进 v0.8.1 之后一直未发版的 F7.18 分类树 / 预置二级 / 主题色 / 日历分段 / 问答聊天化）。阶段二：**任务 1 基准表已实测**（[报告](docs/dev/llm-benchmark.md)）+ **M1「问账本」+ 首页聊天化已交付并真机走查通过**（`/chat` 统一「记一笔 / 问一句」；`/assistant` 与 `/receipt` 已并入；MuMu + 真实微信账单 161 行） |
-| 下一步 | ~~M2 本地模型~~ **⏸ 已搁置（2026-10-28 用户裁定）**。**v0.8.3 已发布（2026-11-09，三个 ABI 包）**。5 条 P3 已于 2026-11-10 清完（PR #25），P5 第一批（非布尔参数 + 设置随备份）也已进 master（PR #27）。最近的待办：① 旧 Pages 地址 `…/yanxin-keeping/` 仍是 404（如需可建同名空仓库放跳转页）② P5 剩余：**导航项自定义 = 用户 2026-11-10 裁定暂缓**；云同步只剩 B/C 档（要加回 `INTERNET`，属产品定位决策，可行性见 [p5-feasibility](docs/handoff/p5-feasibility.md)）③ 真机「SAF 选文件 → 导入旧备份」走查未完成（用户 2026-11-10 暂停）。更早的候选：分类 4 项遗留、导入规则扩容、FR-BUDGET-10 分类级预算、帧率采集 |
+| 下一步 | ~~M2 本地模型~~ **⏸ 已搁置（2026-10-28 用户裁定）**。**v0.8.3 已发布（2026-11-09，三个 ABI 包）**。5 条 P3 已于 2026-11-10 清完（PR #25），P5 第一批（非布尔参数 + 设置随备份）也已进 master（PR #27）。最近的待办：① 旧 Pages 地址 `…/yanxin-keeping/` 仍是 404（如需可建同名空仓库放跳转页）② P5 剩余：**导航项自定义 = 用户 2026-11-10 裁定暂缓** ③ **P6 云同步已立项并拍板**（自建 VPS + 邮箱验证码 + 首版 P6.1+P6.3），**P6.1 网络地基已落地**（`INTERNET` 放行 + 禁明文 + `CloudSyncGate` 默认全拒 + 话术改写），**下一步卡在服务端**：需要 VPS / 域名备案 / 发信服务就绪才能做 P6.2/P6.3（接口契约见 [SPEC-P6](docs/spec/SPEC-P6-cloud-sync.md) §9）④ 真机「SAF 选文件 → 导入旧备份」走查未完成（用户 2026-11-10 暂停）。更早的候选：分类 4 项遗留、导入规则扩容、FR-BUDGET-10 分类级预算、帧率采集 |
 | 技术栈 | Flutter 3.47.2 / Dart 3.13.2 · drift 2.31.0 · Riverpod 3 · go_router 18 · **Material 3 主题（2026-11-10 起默认 seed = 琥珀 `0xFFFFB627` + 外观默认「浅色」，五个色种可选）** · **ML Kit 文字识别（中文 bundled，离线）** · 本地 LLM 探针 = **llama.cpp `b7050`**（仅 `tool/llm_bench/`，**未进 App**） |
 | 数据库 | schema **v5**（v2 加 `budgets`；v3 加 `accounts.icon/color`；v4 加 `categories.parent_id / is_archived`；**v5 把流水指纹唯一性从全局改为 `(book_id, fingerprint)`**，A1）。v4→v5 **只替换索引**，不重建表、不改既有行。**预置二级分类不需要迁移**（是数据不是结构） |
 | 门禁 | 本地 = `flutter analyze` + `flutter test --concurrency=1`（本机受沙箱写缓存限制跑不了，以 CI `test` job 输出为准，约 **800 passed / 6 skipped**）；CI = `.github/workflows/ci.yml`，**四个并行 job**：① `analyze · 生成物同步` ② `test` ③ `build apk (debug)` ④ **`release · 插件与版本物检`**（release 构建后跑 `tool/release_preflight.py`，见下）。本机 `flutter analyze` 在这台 WSL 上会假死，用 `dart analyze lib test` 或 CI 代替；跑测试**必须** `--concurrency=1`（内存不足 OOM） |
@@ -34,7 +34,7 @@
 | 白名单边界 | `active_book_id`（换机后 id 全变）/ `autobook_last_run` / `autobook_batches` / `onboarding_done` **明确不随备份走**，`.dart` 注释里写了理由 |
 | 导入体验 | 备份里带设置时弹一次确认框：一并恢复（默认）/ 只恢复账本；恢复后 `invalidate` 主题与布局三个 AsyncNotifier（否则「看着还是旧主题」）；报告多一行「恢复外观与布局 · N 项」 |
 | 坑 | 老测试 `budget.childSpecs.single` 在加了第二个子参数后炸（`Bad state: Too many elements`）—— 断言改成按 id `firstWhere` |
-| 未做 | 导航项自定义（暂缓）、云同步 B/C 档（需加回 INTERNET，属定位决策）、字符串/日期参数、设置的合并语义 |
+| 未做 | 导航项自定义（暂缓）、字符串/日期参数、设置的合并语义；云同步已另行立项（见 P6） |
 
 ### 本轮交付（2026-11-10 · 5 条 P3 遗留清零，PR #25）
 
@@ -314,14 +314,20 @@ android.overridePathCheck=true
      用 primaryContainer 才有「品牌浅底的呼吸感」；用 `brand`(primary) 会变成深色重块。
    - 门槛：正文小字 **4.5:1**、描边/图形 **3.0:1**、发丝分割线只要可见（**1.4:1**）。
    - 改 `ToonPalette.seed` 或改映射后，**必须跑这条护栏**（它会把每一项的实际比值打进失败信息）。
-8. **正式包不得出现 `INTERNET`（F8.1 起新增，实测踩到过）** —— ML Kit 的依赖链
-   （`com.google.android.datatransport:transport-backend-cct`）**会自己合并进 `INTERNET` +
-   `ACCESS_NETWORK_STATE`**，所以 `android/app/src/release/AndroidManifest.xml` 里用
-   `tools:node="remove"` 把它们删掉。**以后任何「加个 Google/ML 库」的改动，改完必须重核**：
-   `./gradlew :app:processReleaseMainManifest` → 看
-   `build/app/intermediates/merged_manifest/release/.../AndroidManifest.xml` 是否只剩
-   `POST_NOTIFICATIONS` / `RECEIVE_BOOT_COMPLETED`。
-   ⚠️ **不要在 `src/main/` 里删**：debug 包需要 `INTERNET` 跑热重载（VM service 走 TCP）。
+8. **网络能力由「闸门 + 白名单」控制，不再靠「没有权限」**（2026-11-10 P6.1 改写，
+   原口径「正式包不得出现 `INTERNET`」作废）—— 云同步立项后 release 包带 `INTERNET`，
+   所以「不偷偷联网」这句话从「物理上不可能」升级成**代码约定**，两条都必须守住：
+   - **系统层**：`android/app/src/main/res/xml/network_security_config.xml` 全局
+     `cleartextTrafficPermitted="false"`（`http://` 直接发不出去）；`ACCESS_NETWORK_STATE`
+     仍在 `src/release/` 用 `tools:node="remove"` 移除（第一版不读网络状态）。
+   - **代码层**：任何请求前必须过 `CloudSyncGate.denialFor(uri)`（`lib/core/network/`），
+     默认常量 `kClosedCloudSyncGate` = **未登录 + 未开启 → 一律拒绝**；地址只认
+     `SyncEndpoints` 的白名单主机 + 必须 HTTPS。**不要绕过它直接发请求**，那是这条不变量的唯一入口。
+   - 改完任何「加个 Google/ML 库」的依赖，仍要重核合并清单：
+     `./gradlew :app:processReleaseMainManifest` →
+     `build/app/intermediates/merged_manifest/release/.../AndroidManifest.xml`，
+     现在期望看到 `INTERNET` + `POST_NOTIFICATIONS` + `RECEIVE_BOOT_COMPLETED`，
+     **不含** `ACCESS_NETWORK_STATE`。
 9. **写后刷新只有一处实现**（F8.1 收口）：`lib/core/providers/after_write.dart`，
    `Ref` 与 `WidgetRef` 两个入口。**别再复制那五行** —— 三处复制就会漏一处（HANDOFF 不变量 #2 的成因）。
 10. **分类的两个读取口径不能混**（F7.18 起新增）：`categoriesProvider` **含归档**
