@@ -430,38 +430,52 @@ class TransactionRepository {
         .getSingleOrNull();
     if (existing != null) return ImportDuplicate(existing);
 
-    final TxRow tx;
-    try {
-      tx = await create(
-        bookId: bookId,
-        accountId: accountId,
-        type: type,
-        amountCents: amountCents,
-        occurredAt: occurredAt,
-        categoryId: categoryId,
-        note: note,
-        source: source,
-        fingerprint: fp,
-        transferGroupId: transferGroupId,
-        ownerId: ownerId,
-      );
-    } catch (_) {
-      // 并发竞争（P3）：预查之后、插入之前，另一个入口（另一次导入 / 自动记账）
-      // 写入了同指纹行 —— `(book_id, fingerprint)` 唯一索引在这里抛错。
-      // 不能直接冒泡：那会让整批导入回滚、用户看到「导入失败」，而事实是**这笔早就有了**。
-      // 回查一次：查到就当 duplicate（幂等口径），查不到说明是真失败（磁盘 / 锁 / 约束），原样抛出。
-      // ⚠️ SQLite 的 UNIQUE 默认 ABORT 只回滚这条语句、不毁外层事务，所以这里可以「吞掉再继续」。
-      final TxRow? raced = await (_db.select(_db.transactions)
-            ..where(
-              (t) =>
-                  t.bookId.equals(bookId) &
-                  t.fingerprint.equals(fp) &
-                  t.deletedAt.isNull(),
-            ))
-          .getSingleOrNull();
-      if (raced == null) rethrow;
-      return ImportDuplicate(raced);
-    }
-    return ImportOk(tx);
+    // 并发竞争（P3）：预查之后、插入之前，另一个入口（另一次导入 / 自动记账）
+    // 可能已经写入了同指纹行。这里**不用「插失败再 catch」**，而是 `INSERT OR IGNORE`：
+    //
+    //   ① 撞 `(book_id, fingerprint)` 唯一索引时静默不写，不产生异常 → 外层事务不会被打断，
+    //      整批导入不会因为「这笔其实早就有了」而回滚成「导入失败」；
+    //   ② 异常驱动的写法在 SQLite 上还有个坑：`ABORT` 会回滚**整条语句**（含触发器里写入的行），
+    //      失败后再回查什么都查不到，只能 `rethrow` —— 那就等于没兜住。
+    //
+    // 校验（金额 / accountId / categoryId）已在上面的 manual 分支与 create 里做过，这里沿用同一套。
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    final TxRow? inserted = await _db
+        .into(_db.transactions)
+        .insertReturningOrNull(
+          TransactionsCompanion.insert(
+            id: uuidV4(),
+            bookId: bookId,
+            accountId: accountId,
+            type: type,
+            amountCents: amountCents,
+            occurredAt: occurredAt,
+            createdAt: now,
+            updatedAt: now,
+            categoryId: Value(categoryId),
+            note: Value(note),
+            source: Value(source),
+            fingerprint: Value(fp),
+            transferGroupId: Value(transferGroupId),
+            ownerId: Value(ownerId),
+          ),
+          mode: InsertMode.insertOrIgnore,
+        );
+    if (inserted != null) return ImportOk(inserted);
+
+    // 被忽略了 = 唯一索引挡住了：回查那笔已存在的，归为 duplicate（幂等口径）。
+    final TxRow? raced = await (_db.select(
+      _db.transactions,
+    )..where(
+          (t) =>
+              t.bookId.equals(bookId) &
+              t.fingerprint.equals(fp) &
+              t.deletedAt.isNull(),
+        ))
+        .getSingleOrNull();
+    if (raced != null) return ImportDuplicate(raced);
+    // 既没写进去、又查不到同指纹行 → 被别的约束（非空 / 外键）挡住了。明确报错，
+    // 不要假装成功，也不要吐出「重复」误导用户。
+    throw StateError('入账被数据库忽略，且查不到同指纹记录（bookId=$bookId）');
   }
 }

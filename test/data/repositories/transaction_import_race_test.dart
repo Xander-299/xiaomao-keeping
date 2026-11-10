@@ -4,11 +4,14 @@
 /// （并发的第二次导入 / 自动记账）写入了同指纹行，`INSERT` 会撞 `(book_id, fingerprint)`
 /// 唯一索引并**抛错** —— 于是整批导入回滚，用户看到「导入失败」，而事实是「这笔早就有了」。
 ///
-/// 新行为：插入失败时回查一次指纹，查到就返回 [ImportDuplicate]（幂等口径），
-/// 查不到才说明是真失败（磁盘 / 锁 / 其他约束），异常原样抛出。
+/// 新行为：`INSERT OR IGNORE` —— 被唯一索引挡下时不抛错、只不写；随后回查同指纹行，
+/// 查到就返回 [ImportDuplicate]（幂等口径）。既没写进去又查不到（非空 / 外键等其它约束）
+/// 才抛 `StateError`，不假装成功。
 ///
 /// 这里用 SQLite trigger 精确复现「预查与插入之间冒出同指纹行」：trigger 在外层 INSERT
-/// 之前先插一条同指纹的，外层 INSERT 必然撞唯一索引。
+/// 之前先插一条同指纹的，`INSERT OR IGNORE` 必然被忽略。
+/// （注：不能用「插失败 + catch 回查」的写法 —— SQLite 的 ABORT 会回滚整条语句、包括触发器写入的行，
+/// 失败后什么都查不到。）
 library;
 
 import 'package:flutter_test/flutter_test.dart';

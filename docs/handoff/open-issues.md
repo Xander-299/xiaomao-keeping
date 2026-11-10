@@ -237,9 +237,11 @@
       原问题：`BillImporter.importRows` 先批量 `SELECT fingerprint` 再逐行插入；两个导入并发时都可能通过预查，
       最终由 `(book_id, fingerprint)` 唯一索引兜底，而此时插入**抛错** → 整批回滚，用户看到「导入失败」，
       事实却是「这笔早就有了」。
-      修复：`TransactionRepository.importTransaction` 的插入包 try/catch —— 撞唯一索引后**回查一次指纹**，
-      查到就返回 `ImportDuplicate`（幂等口径），查不到才 `rethrow`（磁盘 / 锁 / 其他约束仍是真失败）。
-      SQLite 的 UNIQUE 默认 `ABORT` 只回滚该条语句、不毁外层事务，所以可以在事务里吞掉再继续。
+      修复：`TransactionRepository.importTransaction` 的插入改用 **`InsertMode.insertOrIgnore`** ——
+      撞唯一索引时静默不写、不抛异常，随后回查同指纹行：查到 → `ImportDuplicate`（幂等口径）；
+      既没写进去又查不到（非空 / 外键等其它约束）→ 抛 `StateError`，不假装成功。
+      ⚠️ 别改回「插失败 + catch 里回查」：SQLite 的 `ABORT` 会回滚**整条语句**（含触发器写入的行），
+      失败后回查什么都查不到，等于没兜住 —— 第一版就是这么写的，CI 上当场挂了。
       回归测试：`test/data/repositories/transaction_import_race_test.dart` —— 用 `BEFORE INSERT` trigger
       精确复现「预查之后、插入之前冒出同指纹行」，断言结果 `ImportDuplicate` 且库里仍只有一行；
       另一例让 trigger 直接 `RAISE(ABORT)`（无同指纹行），断言异常照旧抛出、不被吞成 duplicate。
