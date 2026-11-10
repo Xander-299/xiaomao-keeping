@@ -3,16 +3,23 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "node --test src/*.test.ts",
-    "dev": "wrangler dev --local",
-    "deploy": "wrangler deploy",
-    "db:init": "wrangler d1 execute xiaomao-sync --remote --file schema.sql",
-    "db:init:local": "wrangler d1 execute xiaomao-sync --local --file schema.sql"
+    "start": "node src/node/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:worker": "tsc --noEmit -p tsconfig.worker.json",
+    "test": "node --test src/core.test.ts src/node/app.test.ts",
+    "dev": "node --watch src/node/main.ts",
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
     "typescript": "^5.7.2",
     "wrangler": "^3.99.0"
+  },
+  "allowScripts": {
+    "workerd@1.20250718.0": true,
+    "esbuild@0.17.19": true
+  },
+  "dependencies": {
+    "@types/node": "^26.6.6"
   }
 }

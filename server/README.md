@@ -1,12 +1,43 @@
-# 小耄记账 · 云同步服务端（Cloudflare Workers）
+# 小耄记账 · 云同步服务端
 
 实现 `docs/spec/SPEC-P6-cloud-sync.md` §9 的契约。**只做**：邮箱验证码登录、备份上传/下载/列表、注销硬删、限流。
 
-- 运行时依赖：**0 个**（只用 Workers 自带的 `fetch` / WebCrypto / D1 / R2）
-- 开发依赖：`typescript` / `@cloudflare/workers-types` / `wrangler`
-- 数据：D1 存「用户 / 验证码哈希 / refresh token 哈希 / 备份元数据」，R2 存备份正文
+**部署目标是阿里云 ECS**（2026-11-10 最终裁定，见 [`DEPLOY-ECS.md`](./DEPLOY-ECS.md)）：
 
-## 本地跑起来（不需要任何密钥）
+| 项 | 值 |
+|---|---|
+| 运行 | Node ≥ 22.5（建议 24 LTS），**直接 `node src/node/main.ts`**，无构建步骤 |
+| 运行时依赖 | **0 个**（`node:http` / `node:sqlite` / `fetch` / WebCrypto 全是内置） |
+| 数据 | `data/sync.db`（SQLite：用户 / 验证码 / token / 备份元数据）+ `data/backups/`（正文 JSON） |
+| 反代 | Caddy（自动 HTTPS）或 Nginx + certbot，Node 只监听 `127.0.0.1` |
+
+> `src/index.ts` + `wrangler.jsonc` 是**早期 Cloudflare Workers 版本**（D1 + R2）。
+> 契约一致、逻辑等价，但现在**不维护、不作为部署目标** —— 保留只是留个参考实现。
+> 两边共用 `src/core.ts`（JWT / 哈希 / 邮箱规整）与 `schema.sql`。
+
+## 本地跑起来（不需要任何密钥、不需要联网）
+
+```bash
+cd server
+# 两个 secret 只要求长度（≥32），本地随便给；DEV_ECHO_CODE=1 让验证码打到 stdout
+JWT_SECRET=$(openssl rand -hex 24) CODE_PEPPER=$(openssl rand -hex 24) \
+  DEV_ECHO_CODE=1 node src/node/main.ts
+# 会自动建 data/sync.db 并执行 schema
+# 另开一个终端：
+curl -i localhost:8787/v1/backups     # 401 —— 服务活着且鉴权生效
+```
+
+想跑测试（**21 条：13 条纯函数 + 8 条真起服务打真请求的端到端**）：
+
+```bash
+node --test src/core.test.ts src/node/app.test.ts
+# 或 npm test
+```
+
+端到端覆盖：发码 → 校验 → 传/取备份（字节比对）→ 跨用户隔离 → refresh 轮换 →
+注销硬删（文件与行都消失）→ 20 MB 上限 → 60 秒冷却/错码锁定。
+
+## 历史：Cloudflare 版的本地跑法（不维护）
 
 ```bash
 cd server
