@@ -492,39 +492,49 @@ class CategoryRepository {
   ///
   /// 父分类在删除期间也被删掉时返回 false，不做“升为一级”的部分恢复；
   /// 只有完整原层级可恢复时才执行。
-  Future<bool> undelete(String id) async {
-    final Category? category = await getById(id, includeDeleted: true);
-    if (category == null || category.deletedAt == null) return false;
-    try {
-      await _assertNameFree(
-        bookId: category.bookId,
-        kind: category.kind,
-        parentId: category.parentId,
-        name: category.name,
-        excludeId: category.id,
-      );
-    } on CategoryException {
-      return false;
-    }
-    final int now = DateTime.now().millisecondsSinceEpoch;
-    final String? originalParentId = category.parentId;
-    final String? parentId = originalParentId;
-    if (originalParentId != null) {
-      final Category? parent =
-          await (_db.select(_db.categories)
-                ..where((t) => t.id.equals(originalParentId)))
-              .getSingleOrNull();
-      if (parent == null || parent.deletedAt != null) return false;
-    }
-    await (_db.update(_db.categories)..where((t) => t.id.equals(id))).write(
-      CategoriesCompanion(
-        deletedAt: const Value(null),
-        parentId: Value(parentId),
-        updatedAt: Value(now),
-        dirty: const Value(1),
-      ),
-    );
-    return true;
+  ///
+  /// P3：**读 + 校验 + 写入全部收进同一个事务**。原先四步裸跑，校验通过后、
+  /// UPDATE 之前若有并发插入同名活跃分类或删掉父分类，就会写出一个不该恢复的节点
+  /// （校验结果在写入那一刻已经过期）。事务内重做校验 = 校验与写入看到同一份快照。
+  Future<bool> undelete(String id) {
+    return _db.transaction<bool>(() async {
+      final Category? category = await getById(id, includeDeleted: true);
+      if (category == null || category.deletedAt == null) return false;
+      try {
+        await _assertNameFree(
+          bookId: category.bookId,
+          kind: category.kind,
+          parentId: category.parentId,
+          name: category.name,
+          excludeId: category.id,
+        );
+      } on CategoryException {
+        // 事务里「返回 false」= 提交一个只读事务，什么都没写。
+        return false;
+      }
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final String? originalParentId = category.parentId;
+      final String? parentId = originalParentId;
+      if (originalParentId != null) {
+        final Category? parent =
+            await (_db.select(_db.categories)
+                  ..where((t) => t.id.equals(originalParentId)))
+                .getSingleOrNull();
+        if (parent == null || parent.deletedAt != null) return false;
+      }
+      // 并发下这一步可能 0 行（别人刚把它恢复了 / 又删了一次），用受影响行数兜底。
+      final int changed =
+          await (_db.update(_db.categories)..where((t) => t.id.equals(id)))
+              .write(
+                CategoriesCompanion(
+                  deletedAt: const Value(null),
+                  parentId: Value(parentId),
+                  updatedAt: Value(now),
+                  dirty: const Value(1),
+                ),
+              );
+      return changed > 0;
+    });
   }
 
   /// 把 [fromId]（含其子分类）下的账单迁到 [toId]，然后删掉原分类。

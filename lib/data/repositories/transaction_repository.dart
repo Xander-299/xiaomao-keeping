@@ -430,19 +430,38 @@ class TransactionRepository {
         .getSingleOrNull();
     if (existing != null) return ImportDuplicate(existing);
 
-    final tx = await create(
-      bookId: bookId,
-      accountId: accountId,
-      type: type,
-      amountCents: amountCents,
-      occurredAt: occurredAt,
-      categoryId: categoryId,
-      note: note,
-      source: source,
-      fingerprint: fp,
-      transferGroupId: transferGroupId,
-      ownerId: ownerId,
-    );
+    final TxRow tx;
+    try {
+      tx = await create(
+        bookId: bookId,
+        accountId: accountId,
+        type: type,
+        amountCents: amountCents,
+        occurredAt: occurredAt,
+        categoryId: categoryId,
+        note: note,
+        source: source,
+        fingerprint: fp,
+        transferGroupId: transferGroupId,
+        ownerId: ownerId,
+      );
+    } catch (_) {
+      // 并发竞争（P3）：预查之后、插入之前，另一个入口（另一次导入 / 自动记账）
+      // 写入了同指纹行 —— `(book_id, fingerprint)` 唯一索引在这里抛错。
+      // 不能直接冒泡：那会让整批导入回滚、用户看到「导入失败」，而事实是**这笔早就有了**。
+      // 回查一次：查到就当 duplicate（幂等口径），查不到说明是真失败（磁盘 / 锁 / 约束），原样抛出。
+      // ⚠️ SQLite 的 UNIQUE 默认 ABORT 只回滚这条语句、不毁外层事务，所以这里可以「吞掉再继续」。
+      final TxRow? raced = await (_db.select(_db.transactions)
+            ..where(
+              (t) =>
+                  t.bookId.equals(bookId) &
+                  t.fingerprint.equals(fp) &
+                  t.deletedAt.isNull(),
+            ))
+          .getSingleOrNull();
+      if (raced == null) rethrow;
+      return ImportDuplicate(raced);
+    }
     return ImportOk(tx);
   }
 }

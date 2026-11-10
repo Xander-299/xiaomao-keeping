@@ -113,9 +113,15 @@ class LedgerController extends AsyncNotifier<LedgerState> {
   }
 
   /// 软删除一笔并从列表移除（不物理删，DB 里 deleted_at 非空）。
-  Future<void> removeTx(String id) async {
-    await ref.read(transactionRepositoryProvider).softDelete(id);
+  ///
+  /// 返回**是否真的删掉了**（受影响行数 > 0）。P3：这行可能已被别的入口删过，
+  /// 那时不能弹「已删除 + 撤销」，调用方据此改口为「这笔已经不在了」。
+  Future<bool> removeTx(String id) async {
+    final int changed = await ref
+        .read(transactionRepositoryProvider)
+        .softDelete(id);
     await refresh();
+    return changed > 0;
   }
 
   /// 撤销软删：返回可识别的结果；只有恢复成功才刷新列表。
