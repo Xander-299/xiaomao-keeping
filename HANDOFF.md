@@ -11,11 +11,31 @@
 | 项 | 值 |
 |---|---|
 | 交付状态 | F1–F7.17 + **F8.1 阶段一「端上截图记账」全部交付**，最新 tag **`v0.8.3`**（2026-11-09 · A+B+C 数据一致性 + 三 ABI 包，[验收记录](docs/acceptance-v0.8.3.md)）。F8.1 真机走查 7 项全过（[验收报告](docs/acceptance-F8.1-receipt.md)）。**v0.8.2 = 改名「小耄记账」+ 橙底小猫图标首次进正式包**（同时收进 v0.8.1 之后一直未发版的 F7.18 分类树 / 预置二级 / 主题色 / 日历分段 / 问答聊天化）。阶段二：**任务 1 基准表已实测**（[报告](docs/dev/llm-benchmark.md)）+ **M1「问账本」+ 首页聊天化已交付并真机走查通过**（`/chat` 统一「记一笔 / 问一句」；`/assistant` 与 `/receipt` 已并入；MuMu + 真实微信账单 161 行） |
-| 下一步 | ~~M2 本地模型~~ **⏸ 已搁置（2026-10-28 用户裁定）**。**v0.8.3 已发布（2026-11-09，三个 ABI 包）**。最近的待办：① **本地工作区还有 351 条未提交的 Design System v2 改动**（见下方「⚠️ 当前工作区」）② `docs/handoff/open-issues.md` 里 5 个 P3 未修 ③ 旧 Pages 地址 `…/yanxin-keeping/` 仍是 404（如需可建同名空仓库放跳转页）。更早的候选：分类 4 项遗留、导入规则扩容、FR-BUDGET-10 分类级预算、帧率采集 |
-| 技术栈 | Flutter 3.47.2 / Dart 3.13.2 · drift 2.31.0 · Riverpod 3 · go_router 18 · **Material 3 主题（2026-10-28 换肤，seed = 森绿 `0xFF2E5E4E`，同日由琥珀改定）** · **ML Kit 文字识别（中文 bundled，离线）** · 本地 LLM 探针 = **llama.cpp `b7050`**（仅 `tool/llm_bench/`，**未进 App**） |
+| 下一步 | ~~M2 本地模型~~ **⏸ 已搁置（2026-10-28 用户裁定）**。**v0.8.3 已发布（2026-11-09，三个 ABI 包）**。最近的待办：① `docs/handoff/open-issues.md` 里 5 个 P3 未修 ② 旧 Pages 地址 `…/yanxin-keeping/` 仍是 404（如需可建同名空仓库放跳转页）③ P5 候选：非布尔模块参数、导航项自定义、云同步布局。更早的候选：分类 4 项遗留、导入规则扩容、FR-BUDGET-10 分类级预算、帧率采集 |
+| 技术栈 | Flutter 3.47.2 / Dart 3.13.2 · drift 2.31.0 · Riverpod 3 · go_router 18 · **Material 3 主题（2026-11-10 起默认 seed = 琥珀 `0xFFFFB627` + 外观默认「浅色」，五个色种可选）** · **ML Kit 文字识别（中文 bundled，离线）** · 本地 LLM 探针 = **llama.cpp `b7050`**（仅 `tool/llm_bench/`，**未进 App**） |
 | 数据库 | schema **v5**（v2 加 `budgets`；v3 加 `accounts.icon/color`；v4 加 `categories.parent_id / is_archived`；**v5 把流水指纹唯一性从全局改为 `(book_id, fingerprint)`**，A1）。v4→v5 **只替换索引**，不重建表、不改既有行。**预置二级分类不需要迁移**（是数据不是结构） |
-| 门禁 | 本地 = `flutter analyze` + `flutter test --concurrency=1`（**784 passed / 6 skipped**，HEAD `3b9f73f` 实测）；CI = `.github/workflows/ci.yml`，**四个并行 job**：① `analyze · 生成物同步` ② `test` ③ `build apk (debug)` ④ **`release · 插件与版本物检`**（release 构建后跑 `tool/release_preflight.py`，见下）。本机 `flutter analyze` 在这台 WSL 上会假死，用 `dart analyze lib test` 或 CI 代替；跑测试**必须** `--concurrency=1`（内存不足 OOM） |
+| 门禁 | 本地 = `flutter analyze` + `flutter test --concurrency=1`（本机受沙箱写缓存限制跑不了，以 CI `test` job 输出为准，约 **800 passed / 6 skipped**）；CI = `.github/workflows/ci.yml`，**四个并行 job**：① `analyze · 生成物同步` ② `test` ③ `build apk (debug)` ④ **`release · 插件与版本物检`**（release 构建后跑 `tool/release_preflight.py`，见下）。本机 `flutter analyze` 在这台 WSL 上会假死，用 `dart analyze lib test` 或 CI 代替；跑测试**必须** `--concurrency=1`（内存不足 OOM） |
 | 仓库 | **GitHub `Xander-299/xiaomao-keeping`（public，2026-11-09 由 `yanxin-keeping` 改名）** · Pages <https://xander-299.github.io/xiaomao-keeping/> · 规则集 `check-ci`：required checks = `analyze · 生成物同步` / `test` / `build apk (debug)` / `release · 插件与版本物检`（最后一项需在 Settings 里手动勾），approvals 0，禁 force-push / 禁删默认分支（**直推 master 会被挡，必须走 PR**；管理员可 bypass） |
+
+### 本轮交付（2026-11-10 · 设置主题化 + 树形首页布局 + 备份可回灌，PR #21）
+
+> 基于 `master` 的分支 `feat/settings-theme-and-migration`，merge commit `db8272e`。
+> CI 四闸门全绿（`pull_request` 触发的那次 run：analyze / test / build apk / release 全 success）。
+
+| 项 | 结果 |
+|---|---|
+| ① 设置结构 | 「设置 → 主题色与外观」：一张卡两个入口（外观模式 / 主题色），子页用 `Navigator.push`（**别用 `context.push`**，见下条坑）。首页布局入口同款卡片风格 |
+| ② 默认主题 | `ToonSeed` 枚举 **amber 排第一**、`ToonThemeMode` **light 排第一**；`palette.dart` seed = `0xFFFFB627`，浅/深色都从琥珀派生；脏值回落 = amber / light |
+| ③ 树形首页布局 | `dashboard_layout_page`：父模块卡片里嵌子项，**子项只在展开父模块后出现**（`expand_less/expand_more`）；子文本降字号、开关缩到 38×26（`FittedBox`）；父级仍用 `ReorderableDragStartListener` 拖拽 |
+| ④ 备份可回灌 | 导出的 CSV/JSON 现在能被「导入账单」识别：`parseBillFileAuto` 返回 `ParseOutcome`（备份 / 账单两类），`looksLikeBackupJson` + `restoreBackupJson` 恢复账本/账户/分类/流水/预算，靠指纹 + `BudgetRepository.setForMonth` 做幂等；导入页有专用备份报告 UI，并刷新 ledger/stats/dataEpoch；CSV 的 `_categoryJson` 补了 `parentId` |
+| 真机验证 | Redmi K50：设置入口、外观子页默认「浅色」、主题色页琥珀在首位、树形展开/收起与小开关、导出 JSON 落到 `/sdcard/Download/小耄记账_默认账本_*.json`。**SAF 选文件做「导入旧备份」这一步未走完**（模拟点击选文件不稳），代码路径用单测覆盖 |
+| 坑 · 测试里没有 GoRouter | 设置页子入口若用 `context.push`，`test/features/settings/settings_page_test.dart`（裸 `MaterialApp`）会抛 `No GoRouter found in context`。子页统一 `Navigator.push` + `MaterialPageRoute` |
+| 坑 · workflow_dispatch 不算 PR 检查 | 用 `gh workflow run` 补跑出来的 run **不会**计入 PR 的 required status checks，`gh pr merge` 一直报 `Blocked`。正解：**关掉再重开 PR**（`gh pr close/reopen`）触发真正的 `pull_request` run |
+| 未做 | P5 候选（非布尔参数 / 导航项自定义 / 云同步）；本地 `flutter test` 仍受沙箱写缓存限制跑不了，只能靠 CI |
+
+> ⚠️ **Design System v2 已废弃**：用户 2026-11-10 明确「不需要 `design/v2` 这个分支了」，本地 `design/v2` /
+> `docs/product-quality-audit` / `wip/design-snapshot` 与远端 `design/v2` 均已删除。那 351 条未提交的 DS v2 改动
+> **不会**再单独整理成 PR；后续视觉改动以 `master` 上的 `Toon*` 组件 + `lib/ui_kit/` 为准。
 
 ### 本轮交付（2026-11-09 · v0.8.3：A+B+C 数据一致性 + 发布闸门 + 三 ABI 包）
 
@@ -60,9 +80,8 @@
 | 测试 | 新增 `dashboard_registry_test`（含配置 JSON / sanitize / 排序）/ `ui_kit_test`；`dart analyze lib test` 0 issue；本机 Flutter 测试受沙箱写缓存限制未跑 |
 | 未做 | P5：非布尔参数、导航项自定义、云同步 |
 
-> ⚠️ **当前工作区**：本地分支 `docs/product-quality-audit @ 42f43c1`（远端分支已删）里还有 **351 条未提交改动**，
-> 属 Design System v2 的剩余工作（`app_shell` FAB、页面级 `Tok` 令牌化、`toon/states.dart` 接入、DS 测试与 Golden）。
-> 它**不属于** v0.8.3，也**没有**进 master；下一轮要么单独整理成 PR，要么继续搁置 —— 别当成「已交付」。
+> 🗑️ **工作区已清空**：`docs/product-quality-audit` / `design/v2` / `wip/design-snapshot` 三个本地分支
+> 与远端 `design/v2` 均已删除（2026-11-10），不再有那 351 条游离改动。当前工作区只应有 `master`。
 
 ### 本轮交付（2026-10-30 · 发布 v0.8.2：新名 + 新图标真正进包）
 
