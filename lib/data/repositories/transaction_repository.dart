@@ -64,6 +64,29 @@ extension TxRestoreResultX on TxRestoreResult {
   bool get isRestored => this == TxRestoreResult.restored;
 }
 
+/// 入账前的参数校验（`create` 与 `importTransaction` 共用）。
+///
+/// ⚠️ 别只在一处做：`importTransaction` 的指纹分支自己拼 companion 直插（为了用
+/// `INSERT OR IGNORE`），早先漏调这套校验，结果「分类缺失」不再抛错 ——
+/// 直接把 categoryId 为 null 的 expense 写进了库（`bill_importer_test` 的
+/// 「非 duplicate 异常 → 整体回滚」当场抓到）。
+void _validateTransactionInput({
+  required String bookId,
+  required String accountId,
+  required String type,
+  required int amountCents,
+  String? categoryId,
+}) {
+  if (amountCents <= 0) {
+    throw ArgumentError.value(amountCents, 'amountCents', '金额必须为正整数（分）');
+  }
+  if (bookId.isEmpty || accountId.isEmpty) {
+    throw ArgumentError('bookId 与 accountId 为必填');
+  }
+  if (type != 'transfer' && (categoryId == null || categoryId.isEmpty)) {
+    throw ArgumentError('$type 类型必须指定 categoryId');
+  }
+}
 
 class TransactionRepository {
   TransactionRepository(this._db);
@@ -87,15 +110,13 @@ class TransactionRepository {
     String? ownerId,
     String? id,
   }) {
-    if (amountCents <= 0) {
-      throw ArgumentError.value(amountCents, 'amountCents', '金额必须为正整数（分）');
-    }
-    if (bookId.isEmpty || accountId.isEmpty) {
-      throw ArgumentError('bookId 与 accountId 为必填');
-    }
-    if (type != 'transfer' && (categoryId == null || categoryId.isEmpty)) {
-      throw ArgumentError('$type 类型必须指定 categoryId');
-    }
+    _validateTransactionInput(
+      bookId: bookId,
+      accountId: accountId,
+      type: type,
+      amountCents: amountCents,
+      categoryId: categoryId,
+    );
     final now = DateTime.now().millisecondsSinceEpoch;
     return _db
         .into(_db.transactions)
@@ -438,7 +459,15 @@ class TransactionRepository {
     //   ② 异常驱动的写法在 SQLite 上还有个坑：`ABORT` 会回滚**整条语句**（含触发器里写入的行），
     //      失败后再回查什么都查不到，只能 `rethrow` —— 那就等于没兜住。
     //
-    // 校验（金额 / accountId / categoryId）已在上面的 manual 分支与 create 里做过，这里沿用同一套。
+    // 校验（金额 / accountId / categoryId）与 `create` 共用同一套 —— 指纹分支自己拼
+    // companion 直插，漏掉这步就会把「分类缺失」的 expense 写进库。
+    _validateTransactionInput(
+      bookId: bookId,
+      accountId: accountId,
+      type: type,
+      amountCents: amountCents,
+      categoryId: categoryId,
+    );
     final int now = DateTime.now().millisecondsSinceEpoch;
     final TxRow? inserted = await _db
         .into(_db.transactions)
