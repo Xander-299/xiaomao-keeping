@@ -15,6 +15,25 @@
 | 域名 | **大陆节点必须备案**，否则 80/443 会被拦。客户端强制 HTTPS，所以没有域名基本走不通 |
 | 发信 | Resend 账号 + API Key（最快）；或用阿里云邮件推送（需自己接 SMTP） |
 
+## 0.5 · 懒人版：一条命令（推荐）
+
+```bash
+cd /opt && sudo git clone --depth 1 https://github.com/Xander-299/xiaomao-keeping.git xm
+sudo bash xm/server/bootstrap.sh \
+  --domain sync.你的域名 \
+  --mail-from '小耄记账 <no-reply@你的域名>' \
+  --install-node
+```
+
+它会：装 Node 24（`--install-node`）→ 建 `xiaomao` 用户与 `/opt/xiaomao-sync` → 同步代码 →
+**现场生成两个密钥写进 `.env`（chmod 600，不回显）** → 装 systemd 单元并启动 → 自检
+`GET /v1/backups` 是否 401 → 有 Caddy 就写好反代配置。
+
+幂等，可重复跑；**不会覆盖已有 `.env` 与 `data/`**（要重写加 `--force-env`）。
+
+它**不做**（必须你来）：安全组放行、域名备案与 DNS、Resend 注册/域名验证。
+下面是手工版，出问题时对着看。
+
 ## 1 · 装 Node（要 ≥ 22.5，建议 24 LTS）
 
 ```bash
