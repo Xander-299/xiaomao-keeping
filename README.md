@@ -65,16 +65,16 @@
 | **armeabi-v7a** | 32 位 ARM 老机型 | 33.4 MB | [下载][apk-armv7] |
 | **x86_64** | 模拟器 / Intel 设备 | 40.4 MB | [下载][apk-x64] |
 
-- 版本 **0.8.4**（设置与首页布局重构、备份可灌回、导入报告与分类规则修正；三包同版本、同一把正式签名 `CN=yanxin`）
+- 版本 **0.8.5**（外观设置合并成「界面外观」一页；三包同版本、同一把正式签名 `CN=yanxin`）
   · 最低 **Android 7.0** · 全部包见 [Releases][releases]
 - 按手机架构选一个即可：不确定就选 **arm64-v8a**（近五年的手机都是它）
 - 装好后首次会弹 7 页新手引导；卸载即彻底删除数据（无云端），想留档请先「我的 → 数据导出」
 
 > ⚠️ 未上架任何应用商店。系统提示「未知来源」时，允许**当前这个文件管理器**安装即可。
 
-[apk-arm64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.4/yanxin-v0.8.4-arm64-v8a-release.apk
-[apk-armv7]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.4/yanxin-v0.8.4-armeabi-v7a-release.apk
-[apk-x64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.4/yanxin-v0.8.4-x86_64-release.apk
+[apk-arm64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.5/yanxin-v0.8.5-arm64-v8a-release.apk
+[apk-armv7]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.5/yanxin-v0.8.5-armeabi-v7a-release.apk
+[apk-x64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.5/yanxin-v0.8.5-x86_64-release.apk
 [releases]: https://github.com/Xander-299/xiaomao-keeping/releases
 
 ---
@@ -95,7 +95,7 @@
 | **报表** | `/reports` | 三档切换：明细 / 分类汇总 / 账户汇总 |
 | **预算** | 首页一行条 | 预算进度与**剩余每日可消费**、超支预警；点条开编辑弹层 |
 | **资产** | `/assets` | 净资产卡 + 账户列表；账户增改删（**有流水的账户禁删**） |
-| **设置** | `/settings` | 外观三选一：**浅色 / 深色 / 跟随系统（默认）** + **主题色五选一**（森绿 / 琥珀 / 黛蓝 / 藕粉 / 墨紫），选择落 `schema_meta` KV，冷启动沿用 |
+| **设置** | `/settings` | 一张「界面外观」卡片进一页：**外观模式（默认浅色）** + **主题色五选一（琥珀排第一）**，选择落 `schema_meta` KV，冷启动沿用 |
 
 </details>
 
