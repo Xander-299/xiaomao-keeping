@@ -13,6 +13,19 @@ library;
 const sourceWechat = 'wechat_csv';
 const sourceAlipay = 'alipay_csv';
 
+/// 「小耄记账」自己导出的 CSV（`buildBillCsv` 产物）。
+///
+/// 2026-11-13：在此之前导入只认微信 / 支付宝，用户把自己导出的 CSV 再导回来会被判成
+/// 「无法识别的账单文件格式」—— 导出与导入必须闭环。
+///
+/// 设计要点：
+/// - 必需列只用 `日期 / 类型 / 金额`，不会误吃微信（`交易时间 / 收/支 / 金额(元)`）
+///   与支付宝（`交易时间 / 收-支`）的表头；
+/// - `分类 / 账户 / 备注` **直通**：`categoryHint` / `accountName` / `note` 三个可选列，
+///   命中就不再走关键词规则猜一遍（自己导出的数据没必要被二次解释）；
+/// - `转账` 记为 neutral 跳过：导出是「单行一条转账」，导入端没有对侧腿，硬塞进收支会算错账。
+const sourceYanxin = 'yanxin_csv';
+
 /// 平台账单解析配置（「解析五层」第 2 层）。
 class BillProfile {
   const BillProfile({
@@ -103,4 +116,45 @@ const alipayProfile = BillProfile(
 );
 
 /// profile 探测顺序：先微信后支付宝，必需列不全即判定不匹配。
-const billProfiles = <BillProfile>[wechatProfile, alipayProfile];
+/// 匹配顺序：**自有格式优先**（它最具体：日期 / 类型 / 金额），
+/// 微信与支付宝的表头都不含这三列，不会被误吃。
+const billProfiles = <BillProfile>[yanxinCsvProfile, wechatProfile, alipayProfile];
+
+/// source → 给人看的名字（导入页「识别为「…」账单」那一行用）。
+String billSourceLabel(String source) {
+  for (final BillProfile p in billProfiles) {
+    if (p.source == source) return p.name;
+  }
+  return source;
+}
+
+/// 「小耄记账 CSV」profile（导出文件的回灌入口）。
+const yanxinCsvProfile = BillProfile(
+  source: sourceYanxin,
+  name: '小耄记账 CSV',
+  required: <String>['日期', '类型', '金额'],
+  columns: <String, List<String>>{
+    'occurredAt': <String>['日期'],
+    'direction': <String>['类型'],
+    'amount': <String>['金额'],
+    // 下面四个在本格式里不存在 —— 传空列名，`cell()` 会跳过并返回空串
+    'status': <String>['状态'],
+    'externalId': <String>['流水ID'],
+    'counterparty': <String>[''],
+    'product': <String>[''],
+    'method': <String>[''],
+    // 自有格式的直通列
+    'note': <String>['备注'],
+    'categoryHint': <String>['分类'],
+    'accountName': <String>['账户'],
+  },
+  directionMap: <String, String>{
+    '支出': 'expense',
+    '收入': 'income',
+    // 转账没有对侧腿，按「不计收支」跳过（报告里会显示为不计收支 N 笔 · ¥X）
+    '转账': 'skip',
+  },
+  // 本格式没有状态列；空串进白名单，避免每一行都被标成 unknownStatus
+  statusWhitelist: <String>[''],
+  blacklistKeywords: <String>[],
+);

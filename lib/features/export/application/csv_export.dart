@@ -18,7 +18,10 @@ import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/utils/money.dart';
 
 /// CSV 表头（`SPEC` §B.1 固定顺序，勿随意调整）。
-const String kBillCsvHeader = '日期,类型,金额,分类,账户,备注,来源';
+/// 表头。`流水ID` 是 2026-11-13 追加的**最后一列**：
+/// 导入时用它做「这条已经在了」的精确判据（同一份文件反复导、或把导出文件导回原账本都不会翻倍）。
+/// 老文件没有这一列照样能导（退化为按指纹去重）。
+const String kBillCsvHeader = '日期,类型,金额,分类,账户,备注,来源,流水ID';
 
 /// UTF-8 BOM：Excel 双击打开中文 CSV 不乱码的关键（`SPEC` §B.1）。
 const String kUtf8Bom = '\uFEFF';
@@ -119,7 +122,9 @@ String buildBillCsv({
       ..write(',')
       ..write(csvField(r.note))
       ..write(',')
-      ..write(csvField(r.source));
+      ..write(csvField(r.source))
+      ..write(',')
+      ..write(csvField(r.id));
   }
   return buf.toString();
 }

@@ -175,6 +175,11 @@ class OcrChannel(private val activity: Activity) : MethodChannel.MethodCallHandl
                         "text/csv",
                         "text/comma-separated-values",
                         "text/plain",
+                        // 2026-11-13：小耄记账自己的备份是 .json。少了这三条，系统选择器里
+                        // 备份文件是**灰的/看不见**，导入端再能识别也选不到。
+                        "application/json",
+                        "text/json",
+                        "text/x-json",
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         "application/zip",
                         "application/vnd.ms-excel",

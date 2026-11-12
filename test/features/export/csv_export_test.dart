@@ -114,7 +114,7 @@ void main() {
       expect(buildBillCsv(rows: <TxRow>[]).contains('\r\n'), isFalse);
     });
 
-    test('一行流水：日期 / 类型 / 金额 / 分类 / 账户 / 备注 / 来源', () {
+    test('一行流水：日期 / 类型 / 金额 / 分类 / 账户 / 备注 / 来源 / 流水ID', () {
       final String csv = buildBillCsv(
         rows: <TxRow>[
           _tx(
@@ -128,7 +128,11 @@ void main() {
         categoryNames: _catNames,
         accountNames: _accNames,
       );
-      expect(csv.split('\r\n').last, '2026-09-23 12:05,支出,12.34,餐饮,现金,午饭,wechat_csv');
+      // 2026-11-13 起最后一列是「流水ID」：导入端靠它精确判断「这条已经在了」
+      expect(
+        csv.split('\r\n').last,
+        '2026-09-23 12:05,支出,12.34,餐饮,现金,午饭,wechat_csv,t1',
+      );
     });
 
     test('金额取绝对值且无符号：收入 / 转账也照原样（方向看类型列）', () {

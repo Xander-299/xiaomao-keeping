@@ -133,6 +133,10 @@ Future<ImportReport> importRows(
   required List<ParsedRow> rows,
   List<RowOption>? options,
   bool dryRun = false,
+
+  /// 按行解析账户名用（「小耄记账 CSV」自带 `账户` 列）。
+  /// 传 null 时所有行仍落到 [accountId]（微信/支付宝的行为不变）。
+  AccountRepository? accountRepo,
 }) async {
   final txRepo = TransactionRepository(db);
 
@@ -153,12 +157,23 @@ Future<ImportReport> importRows(
   final prepared = active.map(_Prepared.new).toList();
   var unknownStatusCount = 0;
   for (final p in prepared) {
-    final cat = categorizeRow(p.row);
-    p.categoryName = cat.categoryName;
-    p.matched = cat.matched;
     final map = p.row.direction == 'expense'
         ? categoryMaps.expense
         : categoryMaps.income;
+
+    // ① 行内自带分类名（自己导出的 CSV）→ 按名字直取，**不再让规则猜**
+    final String hint = p.row.categoryHint;
+    if (hint.isNotEmpty && map.containsKey(hint)) {
+      p.categoryName = hint;
+      p.matched = true;
+      p.categoryId = map[hint];
+      continue;
+    }
+
+    // ② 平台账单：走关键词规则
+    final cat = categorizeRow(p.row);
+    p.categoryName = cat.categoryName;
+    p.matched = cat.matched;
     p.categoryId = map[cat.categoryName];
     // 规则落「其他」但用户已删/改名「其他」时，兜底取该方向任一分类；
     // 完全无分类的账本无法入账（categoryId 为 null，入账时抛错回滚）
@@ -209,23 +224,84 @@ Future<ImportReport> importRows(
         }
       }
 
+      // 精确去重：表里已有的流水 id（自有 CSV 带 `流水ID` 列）。
+      // 指纹去重只覆盖「以前导入过的行」，而把导出文件导回**原账本**时，
+      // 那些手工记账的行 fingerprint 是 null —— 只有 id 能认出它们。
+      final Set<String> existingIds = <String>{};
+      final List<String> idProbe = <String>[
+        for (final _Prepared p in prepared)
+          if (p.row.externalId.isNotEmpty) p.row.externalId,
+      ];
+      for (var start = 0; start < idProbe.length; start += _inChunk) {
+        final int end = (start + _inChunk) < idProbe.length
+            ? start + _inChunk
+            : idProbe.length;
+        final List<String> chunk = idProbe.sublist(start, end);
+        final String marks = List.filled(chunk.length, '?').join(',');
+        final q = db.customSelect(
+          'SELECT id FROM transactions WHERE book_id = ? AND id IN ($marks)',
+          variables: <Variable<Object>>[
+            Variable.withString(bookId),
+            for (final String id in chunk) Variable.withString(id),
+          ],
+        );
+        for (final r in await q.get()) {
+          existingIds.add(r.read<String>('id'));
+        }
+      }
+
       var imported = 0;
       var uncategorized = 0; // 只统计真正入库的未匹配行（重复跳过的与分类无关）
       var duplicates = existing.length; // 预查命中的直接计为重复
       final importedIds = <String>[];
       var importedAmountCents = 0;
+      final Map<String, String> accountByName = <String, String>{};
       for (final p in prepared) {
         if (existing.contains(p.fingerprint)) continue;
+        if (p.row.externalId.isNotEmpty &&
+            existingIds.contains(p.row.externalId)) {
+          duplicates++; // 这条已经在账本里（同一份导出反复导 / 导回原账本）
+          continue;
+        }
+
+        // 自有 CSV 带 `账户` 列：按名字找，缺了就建（同一文件内缓存，避免重复建）
+        String rowAccountId = accountId;
+        final String accName = p.row.accountName;
+        if (accountRepo != null && accName.isNotEmpty) {
+          final String? cached = accountByName[accName];
+          if (cached != null) {
+            rowAccountId = cached;
+          } else {
+            String? found;
+            for (final a in await accountRepo.listByBook(bookId)) {
+              if (a.name == accName) {
+                found = a.id;
+                break;
+              }
+            }
+            rowAccountId = found ??
+                (await accountRepo.create(
+                  bookId: bookId,
+                  name: accName,
+                  type: 'other',
+                ))
+                    .id;
+            accountByName[accName] = rowAccountId;
+          }
+        }
+
         final res = await txRepo.importTransaction(
           bookId: bookId,
-          accountId: accountId,
+          accountId: rowAccountId,
           categoryId: p.categoryId,
           type: p.row.direction,
           amountCents: p.row.amountCents,
           occurredAt: p.row.occurredAt,
-          note: [p.row.counterparty, p.row.product]
-              .where((s) => s.isNotEmpty)
-              .join(' · '),
+          note: p.row.note.isNotEmpty
+              ? p.row.note
+              : [p.row.counterparty, p.row.product]
+                    .where((s) => s.isNotEmpty)
+                    .join(' · '),
           source: p.row.source,
           externalId: p.row.externalId,
         );
