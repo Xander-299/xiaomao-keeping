@@ -373,6 +373,11 @@ android.overridePathCheck=true
   别名表要覆盖老叫法。
 - 真机走查见 [`docs/dev/android-ui-smoke.md`](docs/dev/android-ui-smoke.md)：
   语义树是「有没有 / 在哪」的真值，截图才是「颜色 / 遮挡」的真值，**两者交叉验证**。
+- **出过包之后 `dart analyze` 报几千个假错误 = `package_config.json` 被 Windows 改写了**
+  （`flutter.bat pub get` 把 `rootUri` 写成 `file:///C:/...`）：`fx-pkgcfg` 一键改回 Linux 路径。
+  别去查代码（2026-11-13 实测 7543 条假错误，真实原因只有这一个）。见 pitfalls #58。
+- **`tool/install_device.ps1` 不再在构建失败时退回旧包**（2026-11-13 改）：只认本次新产出且
+  与 `-Mode` 匹配的 APK，并校验 ABI；要复用旧包必须显式 `-NoBuild`。见 pitfalls #59。
 - **出 release 包必须走 ASCII 副本**：项目在中文路径下，`gen_snapshot` 会因路径含非 ASCII
   直接挂（报 `Unable to read file: …\.dart_tool\flu`）。做法是 robocopy 到 `D:\yanxin-build`
   （排除 `build` / `.gradle-home` / `.git`）+ 带上仓库的 `pubspec.lock` 与 `.dart_tool` +

@@ -161,3 +161,21 @@
     两条附带事实：① 远端是 **SSH**（`git@github.com:`）→ **不吃 `http_proxy` 环境变量**，配代理对它无效；
     ② `curl https://github.com` 在本沙箱会 **15s 超时**（出口限制）但 **SSH 通**
     → **别用 curl 测通性来判断 git 能不能推**。
+
+58. **Windows `flutter.bat pub get` 会把 `package_config.json` 改写成 Windows 绝对路径 → WSL 里
+    `dart analyze` 报**几千个假错误**（2026-11-13 实测 7543 条，`undefined_identifier` /
+    `Target of URI doesn't exist` 满地）：
+    - 根因：`rootUri` 变成 `file:///C:/Users/<你>/AppData/Local/Pub/Cache/...` 与
+      `file:///D:/Download/Flutter/flutter/...`，WSL 读不到 → 所有包都成了「不存在」。
+    - 判据：`python3 tool/fix_package_config.py --check` 会直接告诉你当前指向 windows 还是 linux。
+    - 修法：`fx-pkgcfg`（= `python3 tool/fix_package_config.py`，默认改成 Linux 路径，秒级、幂等）。
+      出包前在 Windows 侧则反向：`--to windows`，或干脆 `flutter.bat pub get`。
+    - 口诀：**出了包就别信第一次 analyze 的红**，先看 package_config 指向哪边。
+
+59. **`tool/install_device.ps1` 曾会在「构建失败」时悄悄装上一次留下的旧包**（2026-11-13 踩到）：
+    现象是 flutter 已经报 `kernel_snapshot_program failed`，脚本仍打印一个 APK 的包名/版本，
+    差点把 `app-x86_64-release.apk` 推到 arm64 真机（换个包名场景就会**装错包**）。
+    已改：① 只认「本次构建新产出 且 与 `-Mode` 匹配」的 APK，否则直接 `Fail` 并给出
+    「WSL 改过 package_config → 先 Windows 侧 pub get」的提示；② 复用旧包必须显式 `-NoBuild`（且会大声提示）；
+    ③ 装前用 `aapt dump badging` 的 `native-code` 与设备 `ro.product.cpu.abi` 比对，ABI 不匹配直接挡。
+    附带：debug 包构建失败时**先看是不是第 58 条**，别急着找代码问题。
