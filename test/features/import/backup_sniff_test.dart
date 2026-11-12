@@ -138,7 +138,8 @@ void main() {
       createBook: false,
     );
     expect(report.imported, 3);
-    expect(report.createdAccounts, 1);
+    // 默认账本自带一个「现金」账户，与夹具同名 → 复用而不是重建（这正是幂等该有的样子）
+    expect(report.createdAccounts, 0);
     expect(report.createdCategories, greaterThanOrEqualTo(1));
   });
 }
