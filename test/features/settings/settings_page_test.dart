@@ -66,14 +66,19 @@ Future<String?> pumpUntilSeedStored(WidgetTester tester, AppDatabase db) async {
 }
 
 void main() {
-  testWidgets('外观模式子页：三行都在，默认选中「浅色」', (WidgetTester tester) async {
+  testWidgets('界面外观：一张卡片进一页，外观模式三行都在，默认选中「浅色」', (
+    WidgetTester tester,
+  ) async {
     final db = openTestDatabase();
     addTearDown(db.close);
     await pumpSettings(tester, db);
 
-    // 设置页只有入口卡片；三行单选在子页里
-    expect(find.text('主题色与外观'), findsOneWidget);
-    await tester.tap(find.text('外观模式'));
+    // 2026-11-13：外观模式与主题色合并成**一张卡片**（「界面外观」），副标题显示当前两项的值
+    expect(find.text('界面外观'), findsOneWidget);
+    expect(find.text('外观模式'), findsNothing, reason: '不再是独立入口卡片');
+    expect(find.text('浅色 · 琥珀 主题色'), findsOneWidget);
+
+    await tester.tap(find.text('界面外观'));
     await tester.pumpAndSettle();
 
     for (final ToonThemeMode m in ToonThemeMode.values) {
@@ -91,7 +96,7 @@ void main() {
     final db = openTestDatabase();
     addTearDown(db.close);
     await pumpSettings(tester, db);
-    await tester.tap(find.text('外观模式'));
+    await tester.tap(find.text('界面外观'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(rowKey(ToonThemeMode.dark)));
@@ -109,7 +114,7 @@ void main() {
     await AppMetaRepository(db).set(kThemeModeKey, 'dark');
 
     await pumpSettings(tester, db);
-    await tester.tap(find.text('外观模式'));
+    await tester.tap(find.text('界面外观'));
     await tester.pumpAndSettle();
     expect(selectedMark(ToonThemeMode.dark), findsOneWidget);
     expect(selectedMark(ToonThemeMode.light), findsNothing);
@@ -123,11 +128,11 @@ void main() {
     addTearDown(db.close);
     await pumpSettings(tester, db);
 
-    // 设置页入口 → 主题色子页（设置页副标题也含「琥珀」文本，需用图标行进入）
-    await tester.tap(find.text('主题色').first);
+    // 同一张「界面外观」页里，外观模式下面就是主题色（不再是独立子页）
+    await tester.tap(find.text('界面外观'));
     await tester.pumpAndSettle();
 
-    expect(find.text('主题色'), findsOneWidget);
+    expect(find.text('主题色'), findsWidgets);
     for (final ToonSeed s in ToonSeed.values) {
       expect(find.byKey(seedKey(s)), findsOneWidget, reason: '缺色点：${s.label}');
     }

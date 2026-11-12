@@ -12,8 +12,7 @@ import 'package:yanxin/core/theme/theme_mode.dart';
 import 'package:yanxin/core/theme/theme_seed.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/features/settings/application/theme_controller.dart';
-import 'package:yanxin/features/settings/presentation/appearance_page.dart';
-import 'package:yanxin/features/settings/presentation/theme_color_page.dart';
+import 'package:yanxin/features/settings/presentation/look_and_feel_page.dart';
 import 'package:yanxin/ui_kit/app_settings_tile.dart';
 
 /// 设置。
@@ -36,44 +35,29 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: <Widget>[
-          const ToonSectionTitle(title: '主题色与外观'),
+          // 不另加分区标题：卡片本身就叫「界面外观」，再加一行是重复
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: ToonCard(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               clip: true,
               child: AppSettingsTile(
                 icon: Icons.palette_rounded,
-                title: '外观模式',
-                subtitle: mode.label,
+                title: '界面外观',
+                // 副标题直接给出当前两项的值，不用点进去才知道
+                subtitle: '${mode.label} · ${seed.label} 主题色',
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const AppearancePage()),
+                  MaterialPageRoute<void>(builder: (_) => const LookAndFeelPage()),
                 ),
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: ToonCard(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              clip: true,
-              child: AppSettingsTile(
-                icon: Icons.colorize_rounded,
-                title: '主题色',
-                subtitle: seed.label,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const ThemeColorPage()),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
             child: Text(
-              '· 外观模式默认「浅色」；主题色默认「琥珀」\n'
+              '· 默认「浅色」+「琥珀」\n'
               '· 主题色只换品牌色系（按钮 / 选中态 / 图表），版式不变\n'
-              '· 选择会记住，下次打开还是这一项\n'
-              '· 只影响本机外观，不影响账本数据',
+              '· 选择会记住；只影响本机外观，不动账本数据',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,

@@ -36,9 +36,8 @@ import 'package:yanxin/features/record/presentation/record_page.dart';
 import 'package:yanxin/features/reports/application/reports_controller.dart';
 import 'package:yanxin/features/reports/presentation/reports_page.dart';
 import 'package:yanxin/features/settings/application/theme_controller.dart';
-import 'package:yanxin/features/settings/presentation/appearance_page.dart';
+import 'package:yanxin/features/settings/presentation/look_and_feel_page.dart';
 import 'package:yanxin/features/settings/presentation/settings_page.dart';
-import 'package:yanxin/features/settings/presentation/theme_color_page.dart';
 import 'package:yanxin/features/stats/presentation/stats_page.dart';
 
 /// 应用根。
@@ -119,12 +118,11 @@ class _YanxinAppState extends ConsumerState<YanxinApp> {
       GoRoute(path: '/onboarding', builder: (_, _) => const OnboardingPage()),
       // 自动记账（F7.15）：权限状态 / 去开启 / 最近一批撤销，入口在「我的」
       GoRoute(path: '/autobook', builder: (_, _) => const AutoBookPage()),
-      // 设置（F7.17）：外观 = 浅色 / 深色 / 跟随系统（默认跟随系统）
+      // 设置（F7.17）：外观 = 浅色 / 深色 / 跟随系统
       GoRoute(path: '/settings', builder: (_, _) => const SettingsPage()),
-      // 外观模式子页（设置 → 主题色与外观 → 外观模式）
-      GoRoute(path: '/appearance', builder: (_, _) => const AppearancePage()),
-      // 主题色子页（设置 → 主题色与外观 → 主题色）
-      GoRoute(path: '/theme-color', builder: (_, _) => const ThemeColorPage()),
+      // 界面外观：外观模式 + 主题色合并成一页（设置页只有一张卡片）
+      // 旧的 `/theme-color` 已并入这里，路由随之删除。
+      GoRoute(path: '/appearance', builder: (_, _) => const LookAndFeelPage()),
       // 首页布局（P3）：模块显示/隐藏 + 拖拽排序，入口在设置页
       GoRoute(
         path: '/dashboard-layout',
