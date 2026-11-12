@@ -81,6 +81,13 @@ fx-qa() {
     flutter analyze ) && fx-test "$@"
 }
 
+# --- WSL 里 dart analyze 报几千个假错误？先修 package_config ---
+# 成因：Windows 侧 `flutter.bat pub get` 会把 .dart_tool/package_config.json 的 rootUri
+#       改写成 `file:///C:/.../Pub/Cache` 与 `file:///D:/.../flutter`，WSL 读不到 → 假错误。
+fx-pkgcfg() {
+  python3 tool/fix_package_config.py "$@"
+}
+
 # --- 其他常用命令 ---
 # 代码生成（改 lib/core/db/tables.dart 后必须重跑，并提交 database.g.dart）：
 #   dart run build_runner build --delete-conflicting-outputs

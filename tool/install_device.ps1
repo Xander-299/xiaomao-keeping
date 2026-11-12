@@ -157,6 +157,7 @@ if (-not $NoBuild) {
     }
 
     $buildArgs = @('build', 'apk', "--$Mode", '--no-pub')
+    $buildStart = Get-Date
     if ($Mode -eq 'release' -and $Arm64Only) { $buildArgs += @('--target-platform', 'android-arm64') }
     Write-Host ("    flutter " + ($buildArgs -join ' ')) -ForegroundColor DarkGray
     & $Flutter @buildArgs 2>&1 | ForEach-Object {
@@ -184,20 +185,31 @@ if (-not $NoBuild) {
   }
 
   if (-not (Test-Path $ApkDir)) { Fail "构建产物目录不存在：$ApkDir" }
-  $apk = Get-ChildItem $ApkDir -Filter '*.apk' |
+  # ⚠️ 只认「本次构建新产出的、且与 Mode 匹配」的包。
+  # 2026-11-13 踩过：构建其实失败了，脚本却从目录里挑了上一次留下的
+  # app-x86_64-release.apk 当成本次产物（换个包名场景会装错包 / 装错 ABI）。
+  $wantFilter = if ($Mode -eq 'release') { '*-release.apk' } else { '*-debug.apk' }
+  $apk = Get-ChildItem $ApkDir -Filter $wantFilter |
+    Where-Object { $_.LastWriteTime -ge $buildStart.AddSeconds(-2) } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
-  if (-not $apk) { Fail '没找到 APK —— 构建八成失败了，往上翻 flutter 的输出' }
-  if ((Get-Date) - $apk.LastWriteTime -gt [TimeSpan]::FromMinutes(10)) {
-    Write-Note ("最新 APK 是 {0:HH:mm:ss} 的，可能不是这次的产物" -f $apk.LastWriteTime)
+  if (-not $apk) {
+    Fail ("构建没有产出新的 $Mode APK —— **不会退回旧包**（旧包可能是别的版本 / 别的 ABI）。`n" +
+      "  常见原因：`n" +
+      "   1) WSL 里跑过 flutter pub get，把 .dart_tool/package_config.json 改写成了 Linux 路径；`n" +
+      "      → 先在 Windows 侧跑 flutter.bat pub get（或 python3 tool/fix_package_config.py --to windows）；`n" +
+      "   2) 编译错误（往上翻 flutter 输出）；`n" +
+      "   3) 确实想复用上次产物：显式加 -NoBuild。")
   }
 }
 else {
   Write-Step '跳过构建，沿用现有 APK'
-  $apk = Get-ChildItem $ApkDir -Filter '*.apk' |
+  $wantFilter = if ($Mode -eq 'release') { '*-release.apk' } else { '*-debug.apk' }
+  $apk = Get-ChildItem $ApkDir -Filter $wantFilter |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
-  if (-not $apk) { Fail "目录里没有 APK：$ApkDir" }
+  if (-not $apk) { Fail "目录里没有 $wantFilter：$ApkDir（-NoBuild 只复用已有 $Mode 包）" }
+  Write-Note ("-NoBuild：复用 {0}（{1:MM-dd HH:mm:ss}），**不保证是最新代码**" -f $apk.Name, $apk.LastWriteTime)
 }
 Write-Ok ("APK：{0}（{1:N1} MB，{2:HH:mm:ss}）" -f $apk.Name, ($apk.Length / 1MB), $apk.LastWriteTime)
 
@@ -210,7 +222,7 @@ if (Test-Path $aapt) {
     $pkg = $Matches[1]
     $versionCode = $Matches[2]
     $versionName = $Matches[3]
-    Write-Ok "包名 $pkg · versionCode $versionCode · versionName $versionName"
+    Write-Ok "APK 包名 $pkg · versionCode $versionCode · versionName $versionName"
   }
   else {
     Fail "读不出 APK 的包名（aapt 输出被截断？）`n$badging"
@@ -228,6 +240,29 @@ if ($pkg -ne $wantPkg) {
     "  · 你想要主包名 → qaAppId 没进构建（环境变量 ORG_GRADLE_PROJECT_qaAppId 实测无效，" +
     "必须写进 android/gradle.properties，本脚本已处理）；`n" +
     "  · 装错包名会去顶正式包 —— 先别继续。")
+}
+
+# ABI 校验：装 x86_64 包到 arm 机 / 反之 都是白装一场。
+# 2026-11-13 踩过：脚本挑错了包，差点把 x86_64 的 release 包推到 arm64 真机。
+if (Test-Path $aapt) {
+  $deviceAbi = ((& $Adb -s $Serial shell getprop ro.product.cpu.abi) 2>&1 | Out-String).Trim()
+  if ($deviceAbi) {
+    $nativeLine = (& $aapt dump badging $apk.FullName 2>&1 | Out-String)
+    if ($nativeLine -match "native-code: '([^']+)'") {
+      $abis = $Matches[1] -split "' '"
+      # armeabi-v7a 设备可跑 armeabi-v7a；arm64 设备通常也能跑 v7a（取决于系统）
+      if ($abis -notcontains $deviceAbi) {
+        # arm64 设备上允许 32 位包（有 v7a 就能装），其它情况直接挡
+        $compat = ($deviceAbi -eq 'arm64-v8a' -and ($abis -contains 'armeabi-v7a')) -or
+                  ($deviceAbi -eq 'armeabi-v7a' -and ($abis -contains 'armeabi'))
+        if (-not $compat) {
+          Fail ("ABI 不匹配：设备是 $deviceAbi，APK 只带 $($abis -join ', ')。`n" +
+            "  装上去也起不来，换个对应 ABI 的包（-Arm64Only / 重新构建）。")
+        }
+      }
+      Write-Ok ("ABI 匹配：设备 {0}，APK 带 {1}" -f $deviceAbi, ($abis -join ', '))
+    }
+  }
 }
 
 if ($Mode -eq 'release' -and -not (Test-Path (Join-Path $Repo 'android\key.properties'))) {
