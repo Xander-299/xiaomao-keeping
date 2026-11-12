@@ -44,7 +44,8 @@ class _PickBody extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       '微信：微信支付账单流水文件（.xlsx，ZIP 解压后解析）\n'
-                      '支付宝：支付宝交易明细（.csv，GBK 编码自动识别）',
+                      '支付宝：支付宝交易明细（.csv，GBK 编码自动识别）\n'
+                      '小耄记账：自己导出的备份（.json，整本恢复）或流水（.csv）',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 12,

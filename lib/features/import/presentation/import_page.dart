@@ -31,6 +31,7 @@ import '../application/backup_restore.dart';
 import '../application/bill_importer.dart';
 import '../data/bill_normalize.dart';
 import '../data/bill_parse.dart';
+import '../data/bill_profiles.dart';
 import '../data/category_rules.dart';
 import 'backup_settings_dialog.dart';
 
@@ -217,6 +218,8 @@ class _ImportPageState extends ConsumerState<ImportPage> {
         accountId: accountId,
         categoryMaps: maps,
         rows: parsed.rows,
+        // 自有 CSV 带「账户」列：导入器按行解析账户名（缺失就建），平台账单不受影响
+        accountRepo: AccountRepository(db),
         options: [
           for (final c in _cancelled) RowOption(cancelled: c),
         ],
@@ -322,7 +325,8 @@ class _ImportPageState extends ConsumerState<ImportPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '识别为「${parsed.source == 'wechat_csv' ? '微信支付' : '支付宝'}」账单',
+                  // 2026-11-13：多了「小耄记账 CSV」这个来源，不再用三目硬编码
+                  '识别为「${billSourceLabel(parsed.source)}」账单',
                   style: const TextStyle(
                     fontSize: 14.5,
                     fontWeight: FontWeight.w700,

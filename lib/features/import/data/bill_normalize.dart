@@ -27,6 +27,9 @@ class ParsedRow {
     required this.status,
     required this.unknownStatus,
     required this.rawIndex,
+    this.note = '',
+    this.categoryHint = '',
+    this.accountName = '',
   });
 
   final String source;
@@ -40,6 +43,17 @@ class ParsedRow {
   final String status;
   final bool unknownStatus;
   final int rawIndex; // 在行矩阵中的原始下标
+
+  /// 备注原文。**只有「小耄记账 CSV」自带**：微信/支付宝没有备注列，
+  /// 它们的备注由 `交易对方 · 商品` 拼出来，所以保持空串即可。
+  final String note;
+
+  /// 分类名提示（同样是自有 CSV 才有）。非空时导入按名字直接找分类，
+  /// **不再走关键词规则** —— 自己导出的文件没必要被规则二次猜一遍。
+  final String categoryHint;
+
+  /// 账户名提示（自有 CSV 才有）。非空时按名字找账户，缺失就新建。
+  final String accountName;
 }
 
 /// 单行归一化结果。
@@ -246,6 +260,12 @@ NormalizeOutcome normalizeRow(
   final rawCounterparty = cell(profile.columns['counterparty']!);
   final rawProduct = cell(profile.columns['product']!);
   final rawMethod = cell(profile.columns['method']!);
+  // 可选列：只有「小耄记账 CSV」的 profile 会声明它们
+  final rawNote = cell(profile.columns['note'] ?? const <String>['']);
+  final rawCategoryHint =
+      cell(profile.columns['categoryHint'] ?? const <String>['']);
+  final rawAccountName =
+      cell(profile.columns['accountName'] ?? const <String>['']);
 
   // 时间：主列解析失败按序回退（支付宝 付款时间 -> 交易创建时间）
   int? occurredAt;
@@ -291,6 +311,9 @@ NormalizeOutcome normalizeRow(
       status: rawStatus,
       unknownStatus: unknownStatus,
       rawIndex: rawIndex,
+      note: rawNote,
+      categoryHint: rawCategoryHint,
+      accountName: rawAccountName,
     ),
   );
 }
