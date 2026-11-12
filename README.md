@@ -65,16 +65,16 @@
 | **armeabi-v7a** | 32 位 ARM 老机型 | 33.4 MB | [下载][apk-armv7] |
 | **x86_64** | 模拟器 / Intel 设备 | 40.4 MB | [下载][apk-x64] |
 
-- 版本 **0.8.3**（A+B+C 数据一致性 + 分类编辑原子性；三包同版本、同一把正式签名 `CN=yanxin`）
+- 版本 **0.8.4**（设置与首页布局重构、备份可灌回、导入报告与分类规则修正；三包同版本、同一把正式签名 `CN=yanxin`）
   · 最低 **Android 7.0** · 全部包见 [Releases][releases]
 - 按手机架构选一个即可：不确定就选 **arm64-v8a**（近五年的手机都是它）
 - 装好后首次会弹 7 页新手引导；卸载即彻底删除数据（无云端），想留档请先「我的 → 数据导出」
 
 > ⚠️ 未上架任何应用商店。系统提示「未知来源」时，允许**当前这个文件管理器**安装即可。
 
-[apk-arm64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.3/yanxin-v0.8.3-arm64-v8a-release.apk
-[apk-armv7]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.3/yanxin-v0.8.3-armeabi-v7a-release.apk
-[apk-x64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.3/yanxin-v0.8.3-x86_64-release.apk
+[apk-arm64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.4/yanxin-v0.8.4-arm64-v8a-release.apk
+[apk-armv7]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.4/yanxin-v0.8.4-armeabi-v7a-release.apk
+[apk-x64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.4/yanxin-v0.8.4-x86_64-release.apk
 [releases]: https://github.com/Xander-299/xiaomao-keeping/releases
 
 ---
