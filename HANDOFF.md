@@ -11,12 +11,24 @@
 
 | 项 | 值 |
 |---|---|
-| 交付状态 | F1–F7.17 + **F8.1 阶段一「端上截图记账」全部交付**，最新 tag **`v0.8.3`**（2026-11-09 · A+B+C 数据一致性 + 三 ABI 包，[验收记录](docs/acceptance-v0.8.3.md)）。F8.1 真机走查 7 项全过（[验收报告](docs/acceptance-F8.1-receipt.md)）。**v0.8.2 = 改名「小耄记账」+ 橙底小猫图标首次进正式包**（同时收进 v0.8.1 之后一直未发版的 F7.18 分类树 / 预置二级 / 主题色 / 日历分段 / 问答聊天化）。阶段二：**任务 1 基准表已实测**（[报告](docs/dev/llm-benchmark.md)）+ **M1「问账本」+ 首页聊天化已交付并真机走查通过**（`/chat` 统一「记一笔 / 问一句」；`/assistant` 与 `/receipt` 已并入；MuMu + 真实微信账单 161 行） |
+| 交付状态 | F1–F7.17 + **F8.1 阶段一「端上截图记账」全部交付**，最新 tag **`v0.8.4`**（2026-11-13 · 设置与布局重构 / 备份可灌回 / 导入修正，[发布说明](docs/release-notes-v0.8.4.md)）（2026-11-09 · A+B+C 数据一致性 + 三 ABI 包，[验收记录](docs/acceptance-v0.8.3.md)）。F8.1 真机走查 7 项全过（[验收报告](docs/acceptance-F8.1-receipt.md)）。**v0.8.2 = 改名「小耄记账」+ 橙底小猫图标首次进正式包**（同时收进 v0.8.1 之后一直未发版的 F7.18 分类树 / 预置二级 / 主题色 / 日历分段 / 问答聊天化）。阶段二：**任务 1 基准表已实测**（[报告](docs/dev/llm-benchmark.md)）+ **M1「问账本」+ 首页聊天化已交付并真机走查通过**（`/chat` 统一「记一笔 / 问一句」；`/assistant` 与 `/receipt` 已并入；MuMu + 真实微信账单 161 行） |
 | 下一步 | ~~M2 本地模型~~ **⏸ 已搁置（2026-10-28 用户裁定）**。**v0.8.3 已发布（2026-11-09，三个 ABI 包）**。5 条 P3 已于 2026-11-10 清完（PR #25），P5 第一批（非布尔参数 + 设置随备份）也已进 master（PR #27）。最近的待办：① 旧 Pages 地址 `…/yanxin-keeping/` 仍是 404（如需可建同名空仓库放跳转页）② P5 剩余：**导航项自定义 = 用户 2026-11-10 裁定暂缓** ③ **P6 云同步已立项并拍板**（自建 VPS + 邮箱验证码 + 首版 P6.1+P6.3），**P6.1 网络地基已落地**（`INTERNET` 放行 + 禁明文 + `CloudSyncGate` 默认全拒 + 话术改写），**下一步卡在服务端**：需要 VPS / 域名备案 / 发信服务就绪才能做 P6.2/P6.3（接口契约见 [SPEC-P6](docs/spec/SPEC-P6-cloud-sync.md) §9）④ 真机「SAF 选文件 → 导入旧备份」走查未完成（用户 2026-11-10 暂停）。更早的候选：分类 4 项遗留、导入规则扩容、FR-BUDGET-10 分类级预算、帧率采集 |
 | 技术栈 | Flutter 3.47.2 / Dart 3.13.2 · drift 2.31.0 · Riverpod 3 · go_router 18 · **Material 3 主题（2026-11-10 起默认 seed = 琥珀 `0xFFFFB627` + 外观默认「浅色」，五个色种可选）** · **ML Kit 文字识别（中文 bundled，离线）** · 本地 LLM 探针 = **llama.cpp `b7050`**（仅 `tool/llm_bench/`，**未进 App**） |
 | 数据库 | schema **v5**（v2 加 `budgets`；v3 加 `accounts.icon/color`；v4 加 `categories.parent_id / is_archived`；**v5 把流水指纹唯一性从全局改为 `(book_id, fingerprint)`**，A1）。v4→v5 **只替换索引**，不重建表、不改既有行。**预置二级分类不需要迁移**（是数据不是结构） |
 | 门禁 | 本地 = `flutter analyze` + `flutter test --concurrency=1`（本机受沙箱写缓存限制跑不了，以 CI `test` job 输出为准，约 **800 passed / 6 skipped**）；CI = `.github/workflows/ci.yml`，**四个并行 job**：① `analyze · 生成物同步` ② `test` ③ `build apk (debug)` ④ **`release · 插件与版本物检`**（release 构建后跑 `tool/release_preflight.py`，见下）。本机 `flutter analyze` 在这台 WSL 上会假死，用 `dart analyze lib test` 或 CI 代替；跑测试**必须** `--concurrency=1`（内存不足 OOM） |
 | 仓库 | **GitHub `Xander-299/xiaomao-keeping`（public，2026-11-09 由 `yanxin-keeping` 改名）** · Pages <https://xander-299.github.io/xiaomao-keeping/> · 规则集 `check-ci`：required checks = `analyze · 生成物同步` / `test` / `build apk (debug)` / `release · 插件与版本物检`（最后一项需在 Settings 里手动勾），approvals 0，禁 force-push / 禁删默认分支（**直推 master 会被挡，必须走 PR**；管理员可 bypass） |
+
+### 本轮交付（2026-11-13 · 发布 v0.8.4：设置与布局重构 + 备份可灌回 + 导入修正）
+
+| 事项 | 结果 |
+|---|---|
+| 版本号 | `0.8.3+2003` → **`0.8.4+2004`**（versionCode 只增不减）；「我的」页角标 `v0.8.2` → `v0.8.4`（v0.8.3 是源码发布，角标当时漏改） |
+| 构建 | **Windows 侧**：`flutter.bat pub get` → `flutter build apk --release --split-per-abi --no-pub`，`JAVA_HOME=JDK 17.0.20.1`、`GRADLE_USER_HOME=<repo>\.gradle-home`。**297 s**，三个包：arm64 **39.0 MB** / v7a **33.6 MB** / x86_64 **40.5 MB** |
+| 核验（4 条） | ① `aapt2 dump badging`：versionName **0.8.4**，versionCode **4004 / 3004 / 6004**（split 偏移），label `小耄记账`；② 权限 = `INTERNET` + `POST_NOTIFICATIONS` + `RECEIVE_BOOT_COMPLETED`（**无 `ACCESS_NETWORK_STATE`**，符合 P6.1 设计）；③ `apksigner` SHA-256 = `d46b65a4…e86567`（与 v0.7.16 起同一把 upload key）；④ `tool/release_preflight.py` 三包全 **PASS**（核心库齐全、插件 5 个） |
+| 发布 | tag **`v0.8.4`** + Release 三个资产 `yanxin-v0.8.4-{arm64-v8a,armeabi-v7a,x86_64}-release.apk`；下载链已验 200 |
+| 内容 | 设置拆「主题色与外观」（默认浅色 + 琥珀）· 树形首页布局 · 备份可被「导入账单」识别且带设置 · 模块非布尔参数（条数/副行/示例数）· 5 条 P3 清零 · 导入中性交易金额单列 · 分类规则名对齐预置（修掉礼金/基金/红包落「其他」） |
+| ⚠️ 口径变化 | **release 包自本版起带 `INTERNET`**（云同步立项）。旧口径「正式包没有网络权限」作废，新口径 = 未登录不发请求 + 全局禁明文 + 域名白名单（`CloudSyncGate`），见不变量 #8 |
+| 未做 | 真机走查（**无设备连接**，`adb devices` 为空）；云同步部署与客户端接入（用户 2026-11-13 裁定「先不考虑后端部署」） |
 
 ### 本轮交付（2026-11-10 · P5 第一批：非布尔参数 + 设置随备份，PR #27）
 
