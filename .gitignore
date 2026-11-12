@@ -114,3 +114,11 @@ __pycache__/
 
 # 从设备 adb pull 下来的临时文件（含真实账本，**绝不入库**）
 /tmp_probe/
+
+# ── 交接 / 开发过程文档：只留在本机，不进仓库（2026-11-13 用户要求）──────────
+# 理由：这些是作者自己交接用的开发文档，对使用者没有价值，不该出现在生产仓库。
+/HANDOFF.md
+/PRODUCT_QUALITY_AUDIT.md
+/docs/RESUME.md
+/docs/handoff/
+/tasks/

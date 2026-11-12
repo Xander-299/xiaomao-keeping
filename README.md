@@ -304,13 +304,10 @@ flutter build apk --release --target-platform android-arm,android-arm64,android-
 
 | 文档 | 内容 |
 |---|---|
-| [`HANDOFF.md`](HANDOFF.md) | **接手入口**：现状、必须守住的不变量、目录导航 |
 | [`CHANGELOG.md`](CHANGELOG.md) | 版本变更记录 + tag 表 |
-| [`docs/RESUME.md`](docs/RESUME.md) | 简历向项目介绍（规模 / 技术难点 / 迭代记录 / 为什么要重写） |
 | [`docs/PRD-yanxin-flutter.md`](docs/PRD-yanxin-flutter.md) | 功能需求汇总（FR 编号 + 状态） |
 | [`docs/spec/`](docs/spec/) | 各阶段签字的 SPEC（总 SPEC + F7.3–F7.15） |
 | [`docs/dev/`](docs/dev/) | 真机走查手册、Windows 环境重建 |
-| [`docs/handoff/`](docs/handoff/) | 交接档案（事实 / 坑 / 未解决 / 历史 / 逐轮记录） |
 | [`docs/acceptance-*.md`](docs/) | 各阶段真机走查验收报告 |
 | [`docs/design/`](docs/design/) | 页面原型参考图（**历史深色版**，见该目录 README） |
 | [`tool/README.md`](tool/README.md) | `tool/` 下每个脚本的用途与适用条件 |
