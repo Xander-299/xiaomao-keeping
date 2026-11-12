@@ -111,3 +111,6 @@ __pycache__/
 
 # 本地 npm 缓存（沙箱里 HOME 不可写，npm 缓存指到工作区）
 /.npm-cache/
+
+# 从设备 adb pull 下来的临时文件（含真实账本，**绝不入库**）
+/tmp_probe/

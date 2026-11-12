@@ -62,14 +62,50 @@ class BackupRestoreReport {
   ({int year, int month})? latestMonth;
 }
 
+/// 嗅探窗口：前 64 KB 足够覆盖 `schemaVersion`（导出时永远在最前面）。
+const int _kBackupSniffBytes = 64 * 1024;
+
 /// 快速嗅探：这段字节是不是小耄记账备份 JSON（UTF-8）。
 ///
-/// 只看前 2 KB 里有没有 `"schemaVersion"` + `"transactions"` 的组合，
-/// 避免完整 JSON 解码的开销；微信/支付宝 CSV 不可能同时含这两个键。
+/// ⚠️ **不要退回到「只看前 2 KB 里找 transactions」**（2026-11-13 的真 bug）：
+/// 备份的键序是 `schemaVersion / exportedAt / book / accounts / categories / transactions / budgets`，
+/// 分类一多，`"transactions"` 会被挤到很后面 ——
+/// 实测 51 个分类的备份在 **20441 字节**处、4 个账户 257 条流水的旧备份在 **6660 字节**处，
+/// 全都超出 2 KB 窗口 → 真备份被判「无法识别」，而只含几条数据的小备份反而能过。
+///
+/// 现在的判据：
+/// 1. 跳过 BOM 与空白后第一个字符必须是 `{`（JSON 对象）—— CSV/xlsx 立刻排除；
+/// 2. 前 64 KB 出现 `"schemaVersion"` 即认作候选（备份导出时它总在最前）；
+/// 3. 兜底：整段解码后同时含 `"schemaVersion"` 与 `"transactions"`（应对手工重排过的文件）。
+///
+/// 字段是否齐全由 [restoreBackupJson] 兜底校验，这里只做「值不值得往下走」的判断。
 bool looksLikeBackupJson(List<int> bytes) {
-  final int n = bytes.length < 2048 ? bytes.length : 2048;
-  final String head = utf8.decode(bytes.sublist(0, n), allowMalformed: true);
-  return head.contains('"schemaVersion"') && head.contains('"transactions"');
+  if (bytes.isEmpty) return false;
+
+  int i = 0;
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xEF &&
+      bytes[1] == 0xBB &&
+      bytes[2] == 0xBF) {
+    i = 3; // UTF-8 BOM
+  }
+  while (i < bytes.length) {
+    final int b = bytes[i];
+    if (b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D) {
+      i++;
+      continue;
+    }
+    break;
+  }
+  if (i >= bytes.length || bytes[i] != 0x7B) return false; // '{'
+
+  final int n =
+      bytes.length < _kBackupSniffBytes ? bytes.length : _kBackupSniffBytes;
+  final String head = utf8.decode(bytes.sublist(i, n), allowMalformed: true);
+  if (head.contains('"schemaVersion"')) return true;
+
+  final String whole = utf8.decode(bytes, allowMalformed: true);
+  return whole.contains('"schemaVersion"') && whole.contains('"transactions"');
 }
 
 /// 备份里是否带 `settings` 段（决定导入页要不要问「一并恢复外观与布局」）。
