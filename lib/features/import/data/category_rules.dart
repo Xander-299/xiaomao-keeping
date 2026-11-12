@@ -71,10 +71,14 @@ final categoryRules = <CategoryRule>[
     '居住',
     RegExp(r'物业|水费|电费|水电|燃气|热力|取暖'),
   ),
+  // 话费 / 流量 / 宽带 → 通讯。
+  //
+  // 真机走查（2026-10-27）抓到过：`手机充值-中国联通` 原本落「居住」，用户当场质疑。
+  // 预置分类里**本来就有「通讯」**，是规则表写错了组。
   CategoryRule(
     'expense',
-    '居住',
-    RegExp(r'宽带|话费|充值.*流量|中国移动|中国联通|中国电信'),
+    '通讯',
+    RegExp(r'话费|充值.*流量|中国移动|中国联通|中国电信|宽带'),
   ),
   CategoryRule('expense', '娱乐', RegExp(r'电影|影院|票房')),
   CategoryRule('expense', '娱乐', RegExp(r'游戏|steam|steam充值|游戏点卡')),
@@ -84,7 +88,14 @@ final categoryRules = <CategoryRule>[
     RegExp(r'腾讯视频|爱奇艺|优酷|芒果tv|会员充值'),
   ),
   CategoryRule('expense', '娱乐', RegExp(r'音乐|网易云音乐|qq音乐')),
-  CategoryRule('expense', '娱乐', RegExp(r'ktv|旅游|门票|景区|酒店|民宿')),
+  // 旅游 / 住宿 / 门票 → 旅行（预置分类里有「旅行」，此前从没被规则命中过）。
+  // `发给~青年旅社` 曾是「其他」，用户认为该进旅行。
+  CategoryRule(
+    'expense',
+    '旅行',
+    RegExp(r'旅游|门票|景区|酒店|民宿|旅社|住宿|青旅'),
+  ),
+  CategoryRule('expense', '娱乐', RegExp(r'ktv|团购|生活服务')),
   CategoryRule('expense', '医疗', RegExp(r'医院|诊所|挂号|体检')),
   CategoryRule(
     'expense',
@@ -94,23 +105,27 @@ final categoryRules = <CategoryRule>[
   CategoryRule('expense', '教育', RegExp(r'学费|培训|课程|网课|报名费')),
   CategoryRule('expense', '教育', RegExp(r'考试|教育|学堂')),
   CategoryRule('expense', '教育', RegExp(r'书店|图书|新华')),
-  CategoryRule('expense', '人情', RegExp(r'礼金|随礼|礼物|鲜花')),
-  CategoryRule('expense', '人情', RegExp(r'捐赠|捐款|请客|代付')),
+  // ⚠️ 分类名必须与 `presetExpense` 完全一致：导入是「按名字查 id」，
+  // 差一个字就会静默落「其他」（曾经写成人情 / 理财 / 红包，全部查不到）。
+  CategoryRule('expense', '人情社交', RegExp(r'礼金|随礼|礼物|鲜花')),
+  CategoryRule('expense', '人情社交', RegExp(r'捐赠|捐款|请客|代付')),
 
   // ── 收入 ──
   CategoryRule('income', '工资', RegExp(r'工资|薪水|薪金|工资代发')),
   CategoryRule('income', '工资', RegExp(r'劳务|报酬')),
   CategoryRule('income', '奖金', RegExp(r'奖金|年终奖|绩效|提成')),
-  CategoryRule('income', '理财', RegExp(r'理财|基金|股票|债券')),
+  CategoryRule('income', '投资收益', RegExp(r'理财|基金|股票|债券')),
   CategoryRule(
     'income',
-    '理财',
+    '投资收益',
     RegExp(r'利息|收益|余额宝|零钱通|分红'),
   ),
   CategoryRule('income', '兼职', RegExp(r'兼职|外快')),
   CategoryRule('income', '兼职', RegExp(r'稿费|稿酬|佣金|赏金|接单')),
-  CategoryRule('income', '红包', RegExp(r'红包|现金')),
-  CategoryRule('income', '红包', RegExp(r'转账|收款|退款到账')),
+  CategoryRule('income', '红包礼金', RegExp(r'红包|现金')),
+  CategoryRule('income', '红包礼金', RegExp(r'转账|收款|退款到账')),
+  // 退款有独立分类（收入侧），别再并进红包
+  CategoryRule('income', '退款', RegExp(r'退款')),
 ];
 
 /// 分类结果。

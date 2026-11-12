@@ -341,7 +341,8 @@ class _ImportPageState extends ConsumerState<ImportPage> {
                     const SizedBox(width: 16),
                     Expanded(
                       child: Text(
-                        '已跳过 ${stats.skipped} 笔（退款 / 不计收支）'
+                        '已跳过 ${stats.skipped} 笔（退款 / 失败 / 不计收支）'
+                        '${stats.neutralSkipped > 0 ? ' · 其中 ${stats.neutralSkipped} 笔转账等不计收支' : ''}'
                         '${stats.malformed > 0 ? ' · 坏行 ${stats.malformed}' : ''}',
                         style: TextStyle(
                           fontSize: 12,
@@ -470,7 +471,17 @@ class _ImportPageState extends ConsumerState<ImportPage> {
     // 行间插虚线（原型 `.kv + .kv`）—— 条件行太多，先收集再交错
     final List<Widget> kvs = <Widget>[
       _Kv(label: '读取行数', value: '${parsed.stats.dataRows}'),
-      _Kv(label: '跳过（退款 / 不计收支）', value: '${parsed.stats.skipped}'),
+      _Kv(
+        label: '跳过（退款 / 失败 / 无效）',
+        value: '${parsed.stats.skipped - parsed.stats.neutralSkipped}',
+      ),
+      // 中性交易单列：微信/支付宝账单**头部**的收支合计是含这些的，不说明会让人以为丢钱
+      if (parsed.stats.neutralSkipped > 0)
+        _Kv(
+          label: '不计收支（转账 / 提现等）',
+          value: '${parsed.stats.neutralSkipped} 笔 · '
+              '¥${centsToYuan(parsed.stats.neutralSkippedCents)}',
+        ),
       _Kv(
         label: '未命中分类规则 → 其他',
         value: '${hasNew ? report.uncategorized : 0}',
@@ -575,6 +586,24 @@ class _ImportPageState extends ConsumerState<ImportPage> {
                   if (i > 0) const ToonDashedLine(),
                   kvs[i],
                 ],
+                // 中性交易的口径说明：不写这句，用户会拿微信头部的金额来对账，
+                // 然后以为「导入丢了 ¥78.51」（真机走查的原话）。
+                if (parsed.stats.neutralSkipped > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      '账单顶部的收支合计包含转账、提现、还款这类「不计收支」的交易；'
+                      '本 App 按规则不计入收支，所以顶部会比这里多 '
+                      '${parsed.stats.neutralSkipped} 笔、'
+                      '¥${centsToYuan(parsed.stats.neutralSkippedCents)}。这不代表丢账。',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: p.ink3,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
