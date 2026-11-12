@@ -54,9 +54,16 @@ final class NormalizedRow extends NormalizeOutcome {
 }
 
 final class RowSkipped extends NormalizeOutcome {
-  const RowSkipped(this.reason);
+  const RowSkipped(this.reason, {this.cents});
 
   final String reason; // neutral | non-positive | blacklisted
+
+  /// 这一行的金额（分）；有的分支拿得到（`neutral`），有的没意义。
+  ///
+  /// 为什么要在「跳过」里带金额：微信/支付宝账单**头部**的收支合计是**含**转账、提现、
+  /// 还款这些中性交易的，而本 App 按规则不计入 —— 不告诉用户这笔钱去哪了，
+  /// 他会以为「导入丢了 78 块」（真机走查原话）。
+  final int? cents;
 }
 
 final class RowMalformed extends NormalizeOutcome {
@@ -88,6 +95,12 @@ class BillStats {
   int unknownStatus = 0;
   final Map<String, int> skipReasons = {};
 
+  /// 中性交易（转账 / 提现 / 还款…）的条数与金额合计。
+  ///
+  /// 单列出来是为了能对用户说清「账单头部的收支为什么比入库多一笔钱」。
+  int neutralSkipped = 0;
+  int neutralSkippedCents = 0;
+
   Map<String, Object?> toJson() => <String, Object?>{
     'dataRows': dataRows,
     'imported': imported,
@@ -95,6 +108,8 @@ class BillStats {
     'malformed': malformed,
     'unknownStatus': unknownStatus,
     'skipReasons': skipReasons,
+    'neutralSkipped': neutralSkipped,
+    'neutralSkippedCents': neutralSkippedCents,
   };
 }
 
@@ -254,7 +269,7 @@ NormalizeOutcome normalizeRow(
   if (direction == null) {
     return RowMalformed('收/支取值未知：${rawDirection.isEmpty ? '(空)' : rawDirection}');
   }
-  if (direction == 'skip') return const RowSkipped('neutral');
+  if (direction == 'skip') return RowSkipped('neutral', cents: amountCents);
   if (amountCents <= 0) return const RowSkipped('non-positive');
 
   // 黑名单优先：命中即跳过（含「关闭/退款/失败/失效」）
@@ -308,6 +323,10 @@ BillParseResult parseBillRows(BillProfile profile, List<List<String>> rows) {
     } else if (r is RowSkipped) {
       stats.skipped++;
       stats.skipReasons[r.reason] = (stats.skipReasons[r.reason] ?? 0) + 1;
+      if (r.reason == 'neutral') {
+        stats.neutralSkipped++;
+        stats.neutralSkippedCents += r.cents ?? 0;
+      }
     } else if (r is NormalizedRow) {
       if (r.row.unknownStatus) stats.unknownStatus++;
       out.add(r.row);

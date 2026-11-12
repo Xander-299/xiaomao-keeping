@@ -115,6 +115,13 @@ void main() {
       expect(result.stats.skipReasons['blacklisted'], 1);
     });
 
+    // 中性交易单独记账（条数 + 金额）：账单头部的收支合计是含它的，
+    // 报告里不单列，用户会以为「导入丢了这笔钱」。
+    test('中性交易的金额被单独累计（¥100.00 = 10000 分）', () {
+      expect(result.stats.neutralSkipped, 1);
+      expect(result.stats.neutralSkippedCents, 10000);
+    });
+
     test('未知状态（处理中）默认导入并标记 unknownStatus', () {
       final unknown = result.rows.where((r) => r.unknownStatus).toList();
       expect(unknown, hasLength(1));
@@ -154,6 +161,11 @@ void main() {
       expect(result.stats.skipReasons['neutral'], 1);
       expect(result.stats.skipReasons['blacklisted'], 1);
       expect(result.stats.dataRows, 4); // 结束线不计入数据行
+    });
+
+    test('不计收支的金额单独累计（¥100.00），退款/关闭不计入', () {
+      expect(result.stats.neutralSkipped, 1);
+      expect(result.stats.neutralSkippedCents, 10000);
     });
 
     test('method 为空（支付宝无支付方式列）', () {
