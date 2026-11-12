@@ -11,12 +11,29 @@
 
 | 项 | 值 |
 |---|---|
-| 交付状态 | F1–F7.17 + **F8.1 阶段一「端上截图记账」全部交付**，最新 tag **`v0.8.5`**（2026-11-13 · 外观设置合并成「界面外观」一页，[发布说明](docs/release-notes-v0.8.5.md)）（2026-11-09 · A+B+C 数据一致性 + 三 ABI 包，[验收记录](docs/acceptance-v0.8.3.md)）。F8.1 真机走查 7 项全过（[验收报告](docs/acceptance-F8.1-receipt.md)）。**v0.8.2 = 改名「小耄记账」+ 橙底小猫图标首次进正式包**（同时收进 v0.8.1 之后一直未发版的 F7.18 分类树 / 预置二级 / 主题色 / 日历分段 / 问答聊天化）。阶段二：**任务 1 基准表已实测**（[报告](docs/dev/llm-benchmark.md)）+ **M1「问账本」+ 首页聊天化已交付并真机走查通过**（`/chat` 统一「记一笔 / 问一句」；`/assistant` 与 `/receipt` 已并入；MuMu + 真实微信账单 161 行） |
+| 交付状态 | F1–F7.17 + **F8.1 阶段一「端上截图记账」全部交付**，最新 tag **`v0.8.6`**（2026-11-13 · 导出与导入闭环：自己的 CSV / JSON 备份都能导回来，[发布说明](docs/release-notes-v0.8.6.md)）（2026-11-09 · A+B+C 数据一致性 + 三 ABI 包，[验收记录](docs/acceptance-v0.8.3.md)）。F8.1 真机走查 7 项全过（[验收报告](docs/acceptance-F8.1-receipt.md)）。**v0.8.2 = 改名「小耄记账」+ 橙底小猫图标首次进正式包**（同时收进 v0.8.1 之后一直未发版的 F7.18 分类树 / 预置二级 / 主题色 / 日历分段 / 问答聊天化）。阶段二：**任务 1 基准表已实测**（[报告](docs/dev/llm-benchmark.md)）+ **M1「问账本」+ 首页聊天化已交付并真机走查通过**（`/chat` 统一「记一笔 / 问一句」；`/assistant` 与 `/receipt` 已并入；MuMu + 真实微信账单 161 行） |
 | 下一步 | ~~M2 本地模型~~ **⏸ 已搁置（2026-10-28 用户裁定）**。**v0.8.3 已发布（2026-11-09，三个 ABI 包）**。5 条 P3 已于 2026-11-10 清完（PR #25），P5 第一批（非布尔参数 + 设置随备份）也已进 master（PR #27）。最近的待办：① 旧 Pages 地址 `…/yanxin-keeping/` 仍是 404（如需可建同名空仓库放跳转页）② P5 剩余：**导航项自定义 = 用户 2026-11-10 裁定暂缓** ③ **P6 云同步已立项并拍板**（自建 VPS + 邮箱验证码 + 首版 P6.1+P6.3），**P6.1 网络地基已落地**（`INTERNET` 放行 + 禁明文 + `CloudSyncGate` 默认全拒 + 话术改写），**下一步卡在服务端**：需要 VPS / 域名备案 / 发信服务就绪才能做 P6.2/P6.3（接口契约见 [SPEC-P6](docs/spec/SPEC-P6-cloud-sync.md) §9）④ 真机「SAF 选文件 → 导入旧备份」走查未完成（用户 2026-11-10 暂停）。更早的候选：分类 4 项遗留、导入规则扩容、FR-BUDGET-10 分类级预算、帧率采集 |
 | 技术栈 | Flutter 3.47.2 / Dart 3.13.2 · drift 2.31.0 · Riverpod 3 · go_router 18 · **Material 3 主题（2026-11-10 起默认 seed = 琥珀 `0xFFFFB627` + 外观默认「浅色」，五个色种可选）** · **ML Kit 文字识别（中文 bundled，离线）** · 本地 LLM 探针 = **llama.cpp `b7050`**（仅 `tool/llm_bench/`，**未进 App**） |
 | 数据库 | schema **v5**（v2 加 `budgets`；v3 加 `accounts.icon/color`；v4 加 `categories.parent_id / is_archived`；**v5 把流水指纹唯一性从全局改为 `(book_id, fingerprint)`**，A1）。v4→v5 **只替换索引**，不重建表、不改既有行。**预置二级分类不需要迁移**（是数据不是结构） |
 | 门禁 | 本地 = `flutter analyze` + `flutter test --concurrency=1`（本机受沙箱写缓存限制跑不了，以 CI `test` job 输出为准，约 **800 passed / 6 skipped**）；CI = `.github/workflows/ci.yml`，**四个并行 job**：① `analyze · 生成物同步` ② `test` ③ `build apk (debug)` ④ **`release · 插件与版本物检`**（release 构建后跑 `tool/release_preflight.py`，见下）。本机 `flutter analyze` 在这台 WSL 上会假死，用 `dart analyze lib test` 或 CI 代替；跑测试**必须** `--concurrency=1`（内存不足 OOM） |
 | 仓库 | **GitHub `Xander-299/xiaomao-keeping`（public，2026-11-09 由 `yanxin-keeping` 改名）** · Pages <https://xander-299.github.io/xiaomao-keeping/> · 规则集 `check-ci`：required checks = `analyze · 生成物同步` / `test` / `build apk (debug)` / `release · 插件与版本物检`（最后一项需在 Settings 里手动勾），approvals 0，禁 force-push / 禁删默认分支（**直推 master 会被挡，必须走 PR**；管理员可 bypass） |
+
+### 本轮交付（2026-11-13 · 发布 v0.8.6：导出 ↔ 导入闭环）
+
+| 事项 | 结果 |
+|---|---|
+| 用户报的问题 | 导出的 JSON / CSV 导不回来（只认微信、支付宝） |
+| 根因 ①（CSV） | 没有「小耄记账 CSV」profile，表头 `日期,类型,金额,分类,账户,备注,来源` 两套都不匹配 → 直接抛「无法识别」。PR #43 |
+| 根因 ②（JSON 选不到） | Android `EXTRA_MIME_TYPES` 没放行 `application/json` → 备份文件在选择器里是灰的。PR #43 |
+| 根因 ③（JSON 判不出） | `looksLikeBackupJson` 只在前 **2 KB** 找 `"transactions"`；真备份里它在 **20441 字节**（51 分类）/ **6660 字节**（旧版 15 分类 257 流水）→ 真备份反而被判无法识别。窗口改 64 KB + JSON 前置判定。PR #44 |
+| 新增能力 | 自有 CSV：分类/账户/备注**直通**（不走规则二次猜）、账户按名字复用缺失才建、`转账` 按不计收支跳过；CSV 导出末尾加 **`流水ID`** 列做精确去重（导回原账本 0 新增） |
+| 测试 | 新增 `yanxin_csv_roundtrip_test`（6）+ `backup_sniff_test`（6，含「复现真备份形状」与端到端恢复）；CI **859 passed / 6 skipped** |
+| 真机 | Redmi K50：用户实测 `小耄记账_默认账本_20261110.json` 导入正常；正式包装后 `versionCode=4006 / 0.8.6 / arm64`，「我的」页角标 `v0.8.6`，冷启动正常 |
+| 构建 | Windows：`flutter.bat pub get` → `build apk --release --split-per-abi --no-pub`（JDK17），**184.7 s**；三包 33.6 / 39.0 / 40.5 MB |
+| 核验 | `aapt2`：versionName **0.8.6**、versionCode **4006 / 3006 / 6006**；权限仍为 `INTERNET`+`POST_NOTIFICATIONS`+`RECEIVE_BOOT_COMPLETED`；`apksigner` SHA-256 `d46b65a4…e86567`；`release_preflight.py` 三包 PASS |
+| 发布 | tag **`v0.8.6`** + 三个资产；下载链 200；**已 `adb install -r` 到真机** |
+| Page 同步 | `docs/index.html` 三处链接 → v0.8.6、tag 计数 22 → **23**；Pages 部署成功，线上页已含 `v0.8.6` |
+| ⚠️ 过程失误 | 排查时把用户真实的 `颜芯记账_默认账本_20261109.json` 随 `git add -A` 提交并推到了 **PR 分支**（未进 master / 未进 Release）；已 `--force-with-lease` 清理并核对远端无该文件，`.gitignore` 加 `/tmp_probe/`。**以后禁止 `git add -A`，先 grep 再 add** |
 
 ### 本轮交付（2026-11-13 · 发布 v0.8.5：外观设置合并成「界面外观」）
 
