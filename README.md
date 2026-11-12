@@ -174,7 +174,7 @@ android/app/src/main/kotlin/com/teacodeman/yanxin/
 └── autobook/                    自动记账原生侧（7 文件，只落盘不解析）
 
 tool/    开发工具链（门禁等效 / APK 核验 / 发布 / 设备调试 / 一键装机），见 tool/README.md
-scripts/performance/   真机性能基准脚本（启动 / 内存 CPU / 包体积），见 docs/perf/
+scripts/performance/   真机性能基准脚本（启动 / 内存 CPU / 包体积）
 test/    75 个测试文件，目录与 lib/ 结构镜像
 docs/    spec/（签字的 SPEC）· dev/（走查与环境手册）· handoff/（交接档案）· design/（原型图）· perf/（性能基线报告）
 ```
@@ -262,7 +262,7 @@ flutter build apk --release --target-platform android-arm,android-arm64,android-
 | 测试 | **73 个测试文件** · 668 处 `test()` / `testWidgets()`（实跑 **740 passed / 6 skipped**） |
 | 迭代 | **200+ 次提交** · **19 个版本 tag**（`v0.7.1` – `v0.7.17`、`v0.8.1`、`v0.8.2`） |
 | 验证环境 | MuMu 模拟器 + **Redmi K50 真机**（Android 14 / HyperOS，adb 全包走查）|
-| 性能基线 | 冷启动 **613.8 ms** · 热启动 **82.4 ms** · 常驻 **43.3 MB** · release APK **46.44 MB**（[报告](docs/perf/baseline-2026-10-29.md)） |
+| 性能基线 | 冷启动 **613.8 ms** · 热启动 **82.4 ms** · 常驻 **43.3 MB** · release APK **46.44 MB** |
 
 > 数字取自仓库本身（`git rev-list --count HEAD`、文件行数统计），可复算。
 
@@ -270,7 +270,7 @@ flutter build apk --release --target-platform android-arm,android-arm64,android-
 
 ## 🔒 数据边界
 
-> 2026-11-10 起因「云同步」立项而调整口径（[SPEC](docs/spec/SPEC-P6-cloud-sync.md)）。
+> 2026-11-10 起因「云同步」立项而调整口径。
 > 变化只有一件事：**从"没有联网能力"变成"联网能力只服务于你自己开启的同步"**。
 > 不卖数据、不做行为画像、没有广告与埋点 —— 这条没变。
 
@@ -300,20 +300,19 @@ flutter build apk --release --target-platform android-arm,android-arm64,android-
 
 ---
 
-## 📚 文档索引
+## 📚 文档与发布
 
-| 文档 | 内容 |
+| 入口 | 内容 |
 |---|---|
-| [`CHANGELOG.md`](CHANGELOG.md) | 版本变更记录 + tag 表 |
-| [`docs/PRD-yanxin-flutter.md`](docs/PRD-yanxin-flutter.md) | 功能需求汇总（FR 编号 + 状态） |
-| [`docs/spec/`](docs/spec/) | 各阶段签字的 SPEC（总 SPEC + F7.3–F7.15） |
-| [`docs/dev/`](docs/dev/) | 真机走查手册、Windows 环境重建 |
-| [`docs/acceptance-*.md`](docs/) | 各阶段真机走查验收报告 |
-| [`docs/design/`](docs/design/) | 页面原型参考图（**历史深色版**，见该目录 README） |
+| [`README.md`](README.md) | 本文件：功能地图 / 项目结构 / 技术选型 / 数据边界 |
+| [Releases](https://github.com/Xander-299/xiaomao-keeping/releases) | **每个版本的 APK 与更新说明**（`docs/release-notes-vX.md` 随发布归档） |
+| [`docs/index.html`](docs/index.html) | 项目落地页（GitHub Pages 同源） |
 | [`tool/README.md`](tool/README.md) | `tool/` 下每个脚本的用途与适用条件 |
-| [`docs/perf/`](docs/perf/) | **真机性能基线报告**（环境 / 口径 / 数据 / 局限 / 复现命令）|
-| [`scripts/performance/`](scripts/performance/) | 性能测试脚本（启动 / 帧 / 内存 CPU / 包体积 / 灌测试数据）|
-| [`tasks/todo-flutter.md`](tasks/todo-flutter.md) | 迁移任务清单 |
+| [`scripts/performance/`](scripts/performance/) | 性能基准脚本 |
+| [`server/`](server/README.md) | 云同步服务端源码（**尚未接入 App**） |
+
+> 开发过程文档（需求 SPEC、验收报告、走查手册、性能基线、变更日志等）**不随仓库发布**，
+> 只在开发分支/本机维护。
 
 ---
 

@@ -122,3 +122,13 @@ __pycache__/
 /docs/RESUME.md
 /docs/handoff/
 /tasks/
+
+# ── 开发过程文档：不进主分支（2026-11-13 用户要求：主分支只放生产相关内容）──
+# 这些留在本地（或在 `dev` 分支上工作），发布仓库里不出现。
+/CHANGELOG.md
+/docs/spec/
+/docs/PRD-yanxin-flutter.md
+/docs/acceptance-*.md
+/docs/dev/
+/docs/perf/
+/docs/design/
