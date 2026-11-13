@@ -112,7 +112,10 @@ export function createHandler(store: Store, cfg: AppConfig) {
     const token = parseBearer(req.headers.authorization ?? null);
     if (!token) return null;
     const claims = await verifyJwt(token, cfg.jwtSecret, now());
-    return claims?.sub ?? null;
+    const userId = claims?.sub;
+    if (!userId) return null;
+    // JWT 只是签名有效；注销是硬删，用户没了就必须 401（否则能重新上传备份）
+    return store.userExists(userId) ? userId : null;
   }
 
   async function sendCode(email: string, code: string): Promise<boolean> {

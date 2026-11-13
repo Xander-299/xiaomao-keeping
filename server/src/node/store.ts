@@ -67,6 +67,17 @@ export class Store {
     return row?.id ?? null;
   }
 
+  /**
+   * 用户行是否还在。
+   *
+   * 注销是**硬删**：access token 是 stateless JWT，签名仍有效，所以每个请求都要
+   * 用这个函数确认用户没被删 —— 否则注销后 15 分钟内还能读/写备份（等于「复活」）。
+   */
+  userExists(userId: string): boolean {
+    const row = this.db.prepare('SELECT 1 AS ok FROM users WHERE id = ?').get(userId);
+    return row !== undefined;
+  }
+
   ensureUser(email: string, nowSec: number): string {
     const existing = this.userIdByEmail(email);
     if (existing) return existing;
