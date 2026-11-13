@@ -41,6 +41,8 @@ export interface AppConfig {
   resendApiKey?: string;
   /** 本地/测试：验证码不走邮件，交给 onDevCode 或打到 stdout。 */
   devEchoCode?: boolean;
+  /** 验证码有效期（秒）；默认 300。联调时可临时放宽。 */
+  codeTtlSec?: number;
   /** 测试钩子（生产不传）。 */
   onDevCode?: (email: string, code: string) => void;
   maxBackupBytes?: number;
@@ -205,7 +207,7 @@ export function createHandler(store: Store, cfg: AppConfig) {
           const code = generateCode(6);
           store.recordSend(email, ip, t);
           store.clearCodes(email, t);
-          store.insertCode(email, await codeHashOf(email, code, cfg.codePepper), t + CODE_TTL_SEC, t, ip);
+          store.insertCode(email, await codeHashOf(email, code, cfg.codePepper), t + (cfg.codeTtlSec ?? CODE_TTL_SEC), t, ip);
 
           if (!(await sendCode(email, code))) {
             store.clearCodes(email, t);

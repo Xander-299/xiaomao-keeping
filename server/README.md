@@ -45,6 +45,7 @@ MAIL_FROM='小耄记账 <you@126.com>'
 ```
 
 - 本地开发可用 `DEV_ECHO_CODE=1`：验证码打到 stdout（systemd 下进 `journalctl`），不真发信；
+- 验证码默认 5 分钟过期；联调时可用 `CODE_TTL_SEC=1800` 临时放宽（生产保持 300）；
 - **生产必须去掉 `DEV_ECHO_CODE`**，否则任何能看日志的人都能登录任意邮箱；
 - SMTP 实现是手写的最小客户端（`src/node/mail.ts`，零运行时依赖），只支持 `AUTH LOGIN` + 纯文本。
 

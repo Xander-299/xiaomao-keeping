@@ -44,6 +44,10 @@ const mailProvider =
       ? 'smtp'
       : 'resend';
 
+const codeTtlRaw = Number(process.env.CODE_TTL_SEC ?? '');
+const codeTtlSec =
+  Number.isFinite(codeTtlRaw) && codeTtlRaw > 0 ? codeTtlRaw : undefined;
+
 const handler = createHandler(store, {
   jwtSecret,
   codePepper,
@@ -52,6 +56,7 @@ const handler = createHandler(store, {
   smtp,
   resendApiKey: process.env.RESEND_API_KEY,
   devEchoCode: process.env.DEV_ECHO_CODE === '1',
+  codeTtlSec,
 });
 
 const port = Number(process.env.PORT ?? 8787);
