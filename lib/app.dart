@@ -39,6 +39,7 @@ import 'package:yanxin/features/settings/application/theme_controller.dart';
 import 'package:yanxin/features/settings/presentation/look_and_feel_page.dart';
 import 'package:yanxin/features/settings/presentation/settings_page.dart';
 import 'package:yanxin/features/stats/presentation/stats_page.dart';
+import 'package:yanxin/features/sync/presentation/cloud_sync_page.dart';
 
 /// 应用根。
 ///
@@ -120,6 +121,8 @@ class _YanxinAppState extends ConsumerState<YanxinApp> {
       GoRoute(path: '/autobook', builder: (_, _) => const AutoBookPage()),
       // 设置（F7.17）：外观 = 浅色 / 深色 / 跟随系统
       GoRoute(path: '/settings', builder: (_, _) => const SettingsPage()),
+      // 云同步（P6.2）：账号 / 同步开关；入口在设置页
+      GoRoute(path: '/cloud-sync', builder: (_, _) => const CloudSyncPage()),
       // 界面外观：外观模式 + 主题色合并成一页（设置页只有一张卡片）
       // 旧的 `/theme-color` 已并入这里，路由随之删除。
       GoRoute(path: '/appearance', builder: (_, _) => const LookAndFeelPage()),

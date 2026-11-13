@@ -43,19 +43,32 @@ class CloudSyncGate {
   const CloudSyncGate({
     required this.signedIn,
     required this.userEnabled,
+    this.endpointConfigured,
   });
 
-  /// 是否已登录（P6.2 接账号体系；当前恒为 false）。
+  /// 是否已登录（P6.2 接账号体系；默认恒为 false）。
   final bool signedIn;
 
   /// 用户是否在设置里打开了「云同步」（默认关）。
   final bool userEnabled;
 
+  /// 端点是否已配置；`null` = 问 [SyncEndpoints.isConfigured]（生产口径）。
+  /// 测试里注入 `true`，否则占位域名永远过不去。
+  final bool? endpointConfigured;
+
+  bool get _configured => endpointConfigured ?? SyncEndpoints.isConfigured;
+
   /// 为什么不让发请求；null = 可以发。
-  CloudSyncDenial? denialFor(Uri uri) {
-    if (!signedIn) return CloudSyncDenial.signedOut;
-    if (!userEnabled) return CloudSyncDenial.disabledByUser;
-    if (!SyncEndpoints.isConfigured) return CloudSyncDenial.notConfigured;
+  ///
+  /// [auth] = 这是**认证接口**（发码 / 校验 / 续期 / 退出 / 注销）。
+  /// 认证接口必须在「未登录 / 开关关闭」时也放行 —— 否则登录本身会被
+  /// 「未登录」拒掉，变成死循环。HTTPS、白名单、已配置三照旧。
+  CloudSyncDenial? denialFor(Uri uri, {bool auth = false}) {
+    if (!auth) {
+      if (!signedIn) return CloudSyncDenial.signedOut;
+      if (!userEnabled) return CloudSyncDenial.disabledByUser;
+    }
+    if (!_configured) return CloudSyncDenial.notConfigured;
     if (uri.scheme != 'https') return CloudSyncDenial.insecureEndpoint;
     if (!SyncEndpoints.allowlistedHosts.contains(uri.host)) {
       return CloudSyncDenial.hostNotAllowlisted;
@@ -63,7 +76,11 @@ class CloudSyncGate {
     return null;
   }
 
-  bool allows(Uri uri) => denialFor(uri) == null;
+  bool allows(Uri uri, {bool auth = false}) =>
+      denialFor(uri, auth: auth) == null;
+
+  /// 认证接口是否可发（未登录也放行）。
+  bool allowsAuth(Uri uri) => allows(uri, auth: true);
 
   /// 当前是否处于「可以联网」的状态（设置页显示状态用）。
   bool get isOpen => denialFor(SyncEndpoints.resolve('/')) == null;
