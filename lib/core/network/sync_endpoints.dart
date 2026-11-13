@@ -12,17 +12,17 @@ library;
 /// 构建期覆盖（测试环境 / 自建部署用）；空 = 用内置默认值。
 const String kSyncBaseUrlEnv = String.fromEnvironment('SYNC_BASE_URL');
 
-/// 部署前的占位地址。**没有任何真实服务**，也不一定由我们持有。
+/// 早期的占位地址（已退役，保留只用于 [SyncEndpoints.isUsingPlaceholder] 判定）。
 const String _kPlaceholderBaseUrl = 'https://sync.xiaomao.app';
 
-/// 内置默认地址。
+/// 内置默认地址：Cloudflare named tunnel → ECS `127.0.0.1:8787`。
 ///
-/// 还是占位时 [SyncEndpoints.isConfigured] 返回 `false` —— 见 [isUsingPlaceholder]。
-/// 正式部署时**只改这一行**（并同步 [SyncEndpoints.allowlistedHosts]），占位判定自动失效。
-const String _kDefaultBaseUrl = _kPlaceholderBaseUrl;
+/// 2026-11-13 起为真实端点（`xanders.ccwu.cc` 托管在 Cloudflare，证书由 CF 边缘提供）。
+/// 若将来换域名：只改这一行 + [SyncEndpoints.allowlistedHosts]。
+const String _kDefaultBaseUrl = 'https://sync.xanders.ccwu.cc';
 
 /// 允许请求的主机白名单（不含端口）。子域**不**自动放行。
-const Set<String> _kDefaultHosts = <String>{'sync.xiaomao.app'};
+const Set<String> _kDefaultHosts = <String>{'sync.xanders.ccwu.cc'};
 
 class SyncEndpoints {
   const SyncEndpoints._();
