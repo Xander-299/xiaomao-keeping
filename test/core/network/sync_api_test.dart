@@ -478,6 +478,115 @@ void main() {
     });
   });
 
+  group('双向同步（P6.4）', () {
+    test('push：POST /v1/sync/push，changes 数组 + Bearer', () async {
+      final _FakeTransport t = _FakeTransport(<SyncResponse>[
+        _json(200, <String, Object?>{
+          'applied': 1,
+          'conflicts': <Object?>[],
+          'cursor': 7,
+        }),
+      ]);
+
+      final SyncPushResult result = await _api(t).pushChanges(
+        accessToken: 'access-1',
+        changes: <SyncChange>[
+          const SyncChange(
+            bookId: 'b1',
+            entity: 'account',
+            id: 'a1',
+            updatedAt: 1000,
+            deleted: false,
+            payload: <String, Object?>{'name': '现金'},
+          ),
+        ],
+      );
+
+      final SyncRequest req = t.requests.single;
+      expect(req.method, 'POST');
+      expect(req.uri.path, '/v1/sync/push');
+      expect(req.headers['authorization'], 'Bearer access-1');
+      final Map<String, Object?> body =
+          jsonDecode(req.body!) as Map<String, Object?>;
+      expect((body['changes']! as List<Object?>).length, 1);
+      expect(result.applied, 1);
+      expect(result.cursor, 7);
+    });
+
+    test('push：conflicts 解析成 SyncChange', () async {
+      final _FakeTransport t = _FakeTransport(<SyncResponse>[
+        _json(200, <String, Object?>{
+          'applied': 0,
+          'cursor': 7,
+          'conflicts': <Object?>[
+            <String, Object?>{
+              'bookId': 'b1',
+              'entity': 'account',
+              'id': 'a1',
+              'updatedAt': 2000,
+              'deleted': false,
+              'payload': <String, Object?>{'name': '云端'},
+            },
+          ],
+        }),
+      ]);
+      final SyncPushResult result = await _api(t).pushChanges(
+        accessToken: 'a',
+        changes: <SyncChange>[
+          const SyncChange(
+            bookId: 'b1',
+            entity: 'account',
+            id: 'a1',
+            updatedAt: 1000,
+            deleted: false,
+            payload: <String, Object?>{},
+          ),
+        ],
+      );
+      expect(result.conflicts.single.updatedAt, 2000);
+      expect(result.conflicts.single.payload['name'], '云端');
+    });
+
+    test('pull：since/limit 查询参数与解析', () async {
+      final _FakeTransport t = _FakeTransport(<SyncResponse>[
+        _json(200, <String, Object?>{
+          'changes': <Object?>[
+            <String, Object?>{
+              'bookId': 'b1',
+              'entity': 'transaction',
+              'id': 't1',
+              'updatedAt': 3000,
+              'deleted': true,
+              'payload': <String, Object?>{},
+            },
+          ],
+          'cursor': 9,
+          'hasMore': true,
+        }),
+      ]);
+      final SyncPullResult result = await _api(t).pullChanges(
+        accessToken: 'a',
+        since: 5,
+        limit: 100,
+      );
+      expect(t.requests.single.uri.path, '/v1/sync/pull');
+      expect(t.requests.single.uri.queryParameters['since'], '5');
+      expect(t.requests.single.uri.queryParameters['limit'], '100');
+      expect(result.changes.single.deleted, isTrue);
+      expect(result.cursor, 9);
+      expect(result.hasMore, isTrue);
+    });
+
+    test('开关关闭 → 闸门拒绝，不发请求', () async {
+      final _FakeTransport t = _FakeTransport(<SyncResponse>[]);
+      await expectLater(
+        _api(t, enabled: false).pullChanges(accessToken: 'a', since: 0),
+        throwsA(isA<SyncDeniedException>()),
+      );
+      expect(t.requests, isEmpty);
+    });
+  });
+
   group('请求地址', () {
     test('所有路径都拼在同一个 baseUrl 下', () {
       expect(

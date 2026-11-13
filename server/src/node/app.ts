@@ -85,8 +85,11 @@ async function readBody(req: IncomingMessage, limit: number): Promise<Uint8Array
   return new Uint8Array(Buffer.concat(chunks));
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown> | null> {
-  const raw = await readBody(req, 64 * 1024);
+async function readJson(
+  req: IncomingMessage,
+  limit = 64 * 1024,
+): Promise<Record<string, unknown> | null> {
+  const raw = await readBody(req, limit);
   if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(Buffer.from(raw).toString('utf8'));
@@ -94,6 +97,53 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown> |
   } catch {
     return null;
   }
+}
+
+const SYNC_ENTITIES = new Set([
+  'book',
+  'account',
+  'category',
+  'transaction',
+  'budget',
+]);
+const MAX_SYNC_CHANGES = 200;
+const MAX_SYNC_BODY = 2 * 1024 * 1024;
+const MAX_SYNC_PAYLOAD = 64 * 1024;
+
+interface SyncChangeOut {
+  bookId: string;
+  entity: string;
+  id: string;
+  updatedAt: number;
+  deleted: boolean;
+  payload: Record<string, unknown>;
+}
+
+function parseSyncChange(raw: unknown): SyncChangeOut | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const entity = typeof o.entity === 'string' ? o.entity : '';
+  const bookId = typeof o.bookId === 'string' ? o.bookId.trim() : '';
+  const id = typeof o.id === 'string' ? o.id.trim() : '';
+  const updatedAt =
+    typeof o.updatedAt === 'number' && Number.isFinite(o.updatedAt)
+      ? Math.floor(o.updatedAt)
+      : -1;
+  const deleted = o.deleted === true;
+  const payload = o.payload;
+  if (!SYNC_ENTITIES.has(entity)) return null;
+  if (!bookId || bookId.length > 64 || !id || id.length > 64) return null;
+  if (updatedAt < 0) return null;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  if (Buffer.byteLength(JSON.stringify(payload)) > MAX_SYNC_PAYLOAD) return null;
+  return {
+    bookId,
+    entity,
+    id,
+    updatedAt,
+    deleted,
+    payload: payload as Record<string, unknown>,
+  };
 }
 
 export function createHandler(store: Store, cfg: AppConfig) {
@@ -268,6 +318,86 @@ export function createHandler(store: Store, cfg: AppConfig) {
           store.removeUserDir(userId); // 先删文件（删了行就找不到 key）
           store.deleteUser(userId);
           return sendEmpty(res, 204);
+        }
+
+        // ── 双向同步（P6.4）─────────────────────────────────────────
+        case 'POST /v1/sync/push': {
+          const userId = await userIdOf(req);
+          if (!userId) return send(res, 401, { error: 'unauthorized' });
+          const body = await readJson(req, MAX_SYNC_BODY);
+          const rawChanges = body?.changes;
+          if (!Array.isArray(rawChanges) || rawChanges.length === 0) {
+            return send(res, 400, { error: 'invalid_input' });
+          }
+          if (rawChanges.length > MAX_SYNC_CHANGES) {
+            return send(res, 413, { error: 'too_many_changes' });
+          }
+          const parsed: SyncChangeOut[] = [];
+          for (const raw of rawChanges) {
+            const change = parseSyncChange(raw);
+            if (!change) return send(res, 400, { error: 'invalid_change' });
+            parsed.push(change);
+          }
+
+          let applied = 0;
+          const conflicts: SyncChangeOut[] = [];
+          for (const change of parsed) {
+            const result = store.syncApply(
+              userId,
+              {
+                bookId: change.bookId,
+                entity: change.entity,
+                id: change.id,
+                updatedAt: change.updatedAt,
+                deleted: change.deleted,
+                payload: JSON.stringify(change.payload),
+              },
+              now(),
+            );
+            if (result.applied) {
+              applied++;
+            } else if (result.existing) {
+              conflicts.push({
+                bookId: result.existing.book_id,
+                entity: result.existing.entity,
+                id: result.existing.entity_id,
+                updatedAt: Number(result.existing.updated_at),
+                deleted: Number(result.existing.deleted) === 1,
+                payload: JSON.parse(result.existing.payload) as Record<string, unknown>,
+              });
+            }
+          }
+          return send(res, 200, {
+            applied,
+            conflicts,
+            cursor: store.syncMaxSeq(userId),
+          });
+        }
+
+        case 'GET /v1/sync/pull': {
+          const userId = await userIdOf(req);
+          if (!userId) return send(res, 401, { error: 'unauthorized' });
+          const sinceRaw = Number(url.searchParams.get('since') ?? '0');
+          const since = Number.isFinite(sinceRaw) && sinceRaw > 0 ? Math.floor(sinceRaw) : 0;
+          const limitRaw = Number(url.searchParams.get('limit') ?? '200');
+          const limit =
+            Number.isFinite(limitRaw) && limitRaw > 0
+              ? Math.min(200, Math.floor(limitRaw))
+              : 200;
+          const bookId = url.searchParams.get('bookId') ?? undefined;
+          const rows = store.syncPull(userId, since, limit + 1, bookId);
+          const hasMore = rows.length > limit;
+          const page = rows.slice(0, limit);
+          const changes: SyncChangeOut[] = page.map((row) => ({
+            bookId: row.book_id,
+            entity: row.entity,
+            id: row.entity_id,
+            updatedAt: Number(row.updated_at),
+            deleted: Number(row.deleted) === 1,
+            payload: JSON.parse(row.payload) as Record<string, unknown>,
+          }));
+          const cursor = page.length > 0 ? Number(page[page.length - 1]!.seq) : since;
+          return send(res, 200, { changes, cursor, hasMore });
         }
 
         // ── 备份 ────────────────────────────────────────────────────

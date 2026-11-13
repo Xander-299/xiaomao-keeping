@@ -133,6 +133,100 @@ class BackupInfo {
   }
 }
 
+/// 一条增量变更（P6.4）。`entity` = book / account / category / transaction / budget。
+class SyncChange {
+  const SyncChange({
+    required this.bookId,
+    required this.entity,
+    required this.id,
+    required this.updatedAt,
+    required this.deleted,
+    required this.payload,
+  });
+
+  factory SyncChange.fromJson(Map<String, Object?> json) {
+    final Object? payload = json['payload'];
+    return SyncChange(
+      bookId: json['bookId'] is String ? json['bookId']! as String : '',
+      entity: json['entity'] is String ? json['entity']! as String : '',
+      id: json['id'] is String ? json['id']! as String : '',
+      updatedAt: json['updatedAt'] is num
+          ? (json['updatedAt']! as num).toInt()
+          : 0,
+      deleted: json['deleted'] == true,
+      payload: payload is Map<String, Object?>
+          ? payload
+          : <String, Object?>{},
+    );
+  }
+
+  final String bookId;
+  final String entity;
+  final String id;
+  final int updatedAt;
+  final bool deleted;
+  final Map<String, Object?> payload;
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'bookId': bookId,
+    'entity': entity,
+    'id': id,
+    'updatedAt': updatedAt,
+    'deleted': deleted,
+    'payload': payload,
+  };
+}
+
+class SyncPushResult {
+  const SyncPushResult({
+    required this.applied,
+    required this.conflicts,
+    required this.cursor,
+  });
+
+  factory SyncPushResult.fromJson(Map<String, Object?> json) {
+    final Object? rawConflicts = json['conflicts'];
+    return SyncPushResult(
+      applied: json['applied'] is num ? (json['applied']! as num).toInt() : 0,
+      conflicts: <SyncChange>[
+        if (rawConflicts is List<Object?>)
+          for (final Object? item in rawConflicts)
+            if (item is Map<String, Object?>) SyncChange.fromJson(item),
+      ],
+      cursor: json['cursor'] is num ? (json['cursor']! as num).toInt() : 0,
+    );
+  }
+
+  final int applied;
+  final List<SyncChange> conflicts;
+  final int cursor;
+}
+
+class SyncPullResult {
+  const SyncPullResult({
+    required this.changes,
+    required this.cursor,
+    required this.hasMore,
+  });
+
+  factory SyncPullResult.fromJson(Map<String, Object?> json) {
+    final Object? raw = json['changes'];
+    return SyncPullResult(
+      changes: <SyncChange>[
+        if (raw is List<Object?>)
+          for (final Object? item in raw)
+            if (item is Map<String, Object?>) SyncChange.fromJson(item),
+      ],
+      cursor: json['cursor'] is num ? (json['cursor']! as num).toInt() : 0,
+      hasMore: json['hasMore'] == true,
+    );
+  }
+
+  final List<SyncChange> changes;
+  final int cursor;
+  final bool hasMore;
+}
+
 /// 一次请求（传输层只认这个，不认业务语义）。
 class SyncRequest {
   const SyncRequest({
@@ -308,6 +402,40 @@ class SyncApi {
       bearer: accessToken,
       auth: true,
     );
+  }
+
+  // ── 双向同步（P6.4）──────────────────────────────────────────────
+
+  /// 上行：一批变更（≤200 条）。
+  Future<SyncPushResult> pushChanges({
+    required String accessToken,
+    required List<SyncChange> changes,
+  }) async {
+    final SyncResponse res = await _send(
+      'POST',
+      '/v1/sync/push',
+      bearer: accessToken,
+      body: <String, Object>{
+        'changes': <Object>[for (final SyncChange c in changes) c.toJson()],
+      },
+      auth: false,
+    );
+    return SyncPushResult.fromJson(_jsonObject(res));
+  }
+
+  /// 下行：从 `since` 之后拉一页（≤200 条）。
+  Future<SyncPullResult> pullChanges({
+    required String accessToken,
+    required int since,
+    int limit = 200,
+  }) async {
+    final SyncResponse res = await _send(
+      'GET',
+      '/v1/sync/pull?since=$since&limit=$limit',
+      bearer: accessToken,
+      auth: false,
+    );
+    return SyncPullResult.fromJson(_jsonObject(res));
   }
 
   // ── 云备份（P6.3）────────────────────────────────────────────────

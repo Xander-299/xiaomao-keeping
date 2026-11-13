@@ -24,6 +24,7 @@ import 'package:yanxin/features/ledger/presentation/dashboard/dashboard_config_c
 import 'package:yanxin/features/settings/application/theme_controller.dart';
 import 'package:yanxin/features/stats/application/stats_controller.dart';
 import 'package:yanxin/features/sync/application/auth_controller.dart';
+import 'package:yanxin/features/sync/application/sync_engine.dart';
 
 /// 云端最新备份（未登录 / 开关关闭时不发请求，返回 null）。
 final cloudBackupInfoProvider = FutureProvider<BackupInfo?>((Ref ref) async {
@@ -296,6 +297,51 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
     );
   }
 
+  Future<void> _syncNow() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await ref.read(syncStatusProvider.notifier).syncNow();
+      if (!mounted) return;
+      final SyncStatusState? state = ref.read(syncStatusProvider).value;
+      final String? error = state?.error;
+      if (error != null) {
+        _toast(error);
+      } else if (state?.last != null) {
+        final SyncResult r = state!.last!;
+        _toast('同步完成：上行 ${r.pushed} / 下行 ${r.pulled}');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _syncStatus(ToonPalette p, SyncStatusState state) {
+    final String text;
+    if (state.syncing) {
+      text = '正在同步…';
+    } else if (state.error != null) {
+      text = '同步失败：${state.error}';
+    } else if (state.lastSyncAt == null) {
+      text = '还没同步过';
+    } else {
+      final String stamp = _stamp(state.lastSyncAt!);
+      final SyncResult? r = state.last;
+      text = r == null
+          ? '上次同步：$stamp'
+          : '上次同步：$stamp · 上行 ${r.pushed} / 下行 ${r.pulled} / 跳过 ${r.skipped}';
+    }
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: p.ink2,
+        height: 1.7,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ToonPalette p = context.toon;
@@ -464,6 +510,42 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
           child: Text(
             '· 手动触发，不会后台上传；只存最近几份快照\n'
             '· 恢复是合并 + 指纹去重，不删除现有数据',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: p.ink2,
+              height: 1.7,
+            ),
+          ),
+        ),
+        const ToonSectionTitle(title: '账本同步（实验）'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+          child: ToonCard(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _syncStatus(
+                  p,
+                  ref.watch(syncStatusProvider).value ?? const SyncStatusState(),
+                ),
+                const SizedBox(height: 12),
+                ToonButton(
+                  key: const ValueKey<String>('cloudSyncNow'),
+                  label: _busy ? '请稍候…' : '立即同步',
+                  block: true,
+                  onPressed: enabled && !_busy ? _syncNow : null,
+                ),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+          child: Text(
+            '· 第一版只做手动同步：同一条记录以更新时间较晚者为准\n'
+            '· 不含外观 / 布局设置；多设备同时新建同一笔可能重复',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,

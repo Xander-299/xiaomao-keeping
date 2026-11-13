@@ -26,6 +26,26 @@ export interface BackupRow {
   created_at: number;
 }
 
+/** P6.4 同步变更（已入库的行）。 */
+export interface SyncChangeRow {
+  seq: number;
+  book_id: string;
+  entity: string;
+  entity_id: string;
+  updated_at: number;
+  deleted: number;
+  payload: string;
+}
+
+export interface SyncChangeInput {
+  bookId: string;
+  entity: string;
+  id: string;
+  updatedAt: number;
+  deleted: boolean;
+  payload: string;
+}
+
 export class Store {
   readonly db: DatabaseSync;
   readonly dataDir: string;
@@ -257,10 +277,102 @@ export class Store {
     rmSync(join(this.dataDir, 'backups', userId), { recursive: true, force: true });
   }
 
+  // ── 双向同步（P6.4）──────────────────────────────────────────────
+
+  syncGet(
+    userId: string,
+    bookId: string,
+    entity: string,
+    entityId: string,
+  ): SyncChangeRow | null {
+    const row = this.db
+      .prepare(
+        `SELECT seq, book_id, entity, entity_id, updated_at, deleted, payload
+         FROM sync_changes
+         WHERE user_id = ? AND book_id = ? AND entity = ? AND entity_id = ?`,
+      )
+      .get(userId, bookId, entity, entityId) as SyncChangeRow | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * LWW 写入：旧行 `updated_at >=` 新值 → 服务端赢（不写，返回旧行）；
+   * 否则删旧插新，让 `seq` 自增，其他设备下次 pull 才看得到。
+   */
+  syncApply(
+    userId: string,
+    change: SyncChangeInput,
+    nowSec: number,
+  ): { applied: boolean; existing: SyncChangeRow | null } {
+    const existing = this.syncGet(userId, change.bookId, change.entity, change.id);
+    if (existing && Number(existing.updated_at) >= change.updatedAt) {
+      return { applied: false, existing };
+    }
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db
+        .prepare(
+          `DELETE FROM sync_changes
+           WHERE user_id = ? AND book_id = ? AND entity = ? AND entity_id = ?`,
+        )
+        .run(userId, change.bookId, change.entity, change.id);
+      this.db
+        .prepare(
+          `INSERT INTO sync_changes
+             (user_id, book_id, entity, entity_id, updated_at, deleted, payload, server_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          userId,
+          change.bookId,
+          change.entity,
+          change.id,
+          change.updatedAt,
+          change.deleted ? 1 : 0,
+          change.payload,
+          nowSec,
+        );
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return { applied: true, existing: null };
+  }
+
+  syncPull(
+    userId: string,
+    since: number,
+    limit: number,
+    bookId?: string,
+  ): SyncChangeRow[] {
+    const sql = bookId
+      ? `SELECT seq, book_id, entity, entity_id, updated_at, deleted, payload
+         FROM sync_changes
+         WHERE user_id = ? AND seq > ? AND book_id = ?
+         ORDER BY seq ASC LIMIT ?`
+      : `SELECT seq, book_id, entity, entity_id, updated_at, deleted, payload
+         FROM sync_changes
+         WHERE user_id = ? AND seq > ?
+         ORDER BY seq ASC LIMIT ?`;
+    const args = bookId
+      ? [userId, since, bookId, limit]
+      : [userId, since, limit];
+    return this.db.prepare(sql).all(...args) as unknown as SyncChangeRow[];
+  }
+
+  syncMaxSeq(userId: string): number {
+    const row = this.db
+      .prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM sync_changes WHERE user_id = ?')
+      .get(userId) as { seq: number } | undefined;
+    return Number(row?.seq ?? 0);
+  }
+
   // ── 注销（硬删）─────────────────────────────────────────────────────
 
   deleteUser(userId: string): void {
     this.db.prepare('DELETE FROM backups WHERE user_id = ?').run(userId);
+    this.db.prepare('DELETE FROM sync_changes WHERE user_id = ?').run(userId);
     this.db.prepare('DELETE FROM refresh_tokens WHERE user_id = ?').run(userId);
     this.db
       .prepare('DELETE FROM auth_codes WHERE email IN (SELECT email FROM users WHERE id = ?)')
