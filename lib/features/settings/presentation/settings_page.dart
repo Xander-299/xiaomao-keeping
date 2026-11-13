@@ -37,7 +37,7 @@ class SettingsPage extends ConsumerWidget {
     final String cloudSubtitle = auth.signedIn
         ? '已登录${auth.email == null ? '' : ' ${auth.email}'} · '
               '${syncOn ? '同步已开启' : '同步已关闭'}'
-        : '未登录 · 登录后可换机恢复（云备份开发中）';
+        : '未登录 · 登录后可备份 / 换机恢复';
 
     return Scaffold(
       // 设置页用纯卡片底色（与「我的」一致），不是全局暖白画布

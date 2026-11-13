@@ -8,6 +8,8 @@
 ///   （都不进备份 JSON）。
 library;
 
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:yanxin/core/network/cloud_sync_gate.dart';
@@ -15,6 +17,7 @@ import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/network/sync_endpoints.dart';
 import 'package:yanxin/core/security/token_store.dart';
 import 'package:yanxin/data/providers/database.dart';
+import 'package:yanxin/features/sync/application/backup_bytes.dart';
 
 /// 登录态在安全存储里的键（值 = [AuthSession.toStorageJson]）。
 const String kSyncSessionKey = 'sync_session';
@@ -167,6 +170,32 @@ class AuthController extends AsyncNotifier<AuthState> {
     await ref.read(cloudSyncEnabledProvider.notifier).setEnabled(false);
     await _clearSession();
   }
+
+  // ── 云备份（P6.3）────────────────────────────────────────────────
+
+  /// 上传当前账本备份到云端（覆盖「最新备份」）。
+  Future<BackupInfo> uploadCurrentBackup() async {
+    final Uint8List bytes = await ref.read(currentBackupBytesProvider.future);
+    return _withAuth(
+      (String token) => ref.read(syncApiProvider).uploadLatestBackup(
+        accessToken: token,
+        bytes: bytes,
+      ),
+    );
+  }
+
+  /// 云端最新备份的元数据；没有备份返回 null。
+  Future<BackupInfo?> latestBackup() async {
+    final List<BackupInfo> list = await _withAuth(
+      (String token) => ref.read(syncApiProvider).listBackups(token),
+    );
+    return list.isEmpty ? null : list.first;
+  }
+
+  /// 下载云端最新备份原文。
+  Future<Uint8List> downloadLatestBackup() => _withAuth(
+    (String token) => ref.read(syncApiProvider).downloadLatestBackup(token),
+  );
 
   /// 带一次 401 续期的调用：refresh 成功 → 落新 token → 重放一次。
   Future<T> _withAuth<T>(Future<T> Function(String token) run) async {

@@ -13,6 +13,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'cloud_sync_gate.dart';
 import 'sync_endpoints.dart';
@@ -90,6 +91,48 @@ class AuthSession {
   });
 }
 
+/// 云端备份的一条元数据（上传响应 / 列表项）。
+class BackupInfo {
+  const BackupInfo({
+    this.id,
+    required this.size,
+    this.sha256,
+    required this.createdAt,
+  });
+
+  factory BackupInfo.fromJson(Map<String, Object?> json) {
+    final Object? rawSize = json['size'];
+    final Object? rawCreated = json['createdAt'];
+    final Object? rawId = json['id'];
+    final Object? rawSha = json['sha256'];
+    final int size = rawSize is num ? rawSize.toInt() : 0;
+    final DateTime createdAt =
+        (rawCreated is String ? DateTime.tryParse(rawCreated) : null)
+            ?.toLocal() ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+    return BackupInfo(
+      id: rawId is String && rawId.isNotEmpty ? rawId : null,
+      size: size,
+      sha256: rawSha is String && rawSha.isNotEmpty ? rawSha : null,
+      createdAt: createdAt,
+    );
+  }
+
+  /// 列表接口返回；上传响应没有 id。
+  final String? id;
+  final int size;
+  final String? sha256;
+  final DateTime createdAt;
+
+  String get sizeLabel {
+    if (size >= 1024 * 1024) {
+      return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (size >= 1024) return '${(size / 1024).toStringAsFixed(1)} KB';
+    return '$size B';
+  }
+}
+
 /// 一次请求（传输层只认这个，不认业务语义）。
 class SyncRequest {
   const SyncRequest({
@@ -97,12 +140,18 @@ class SyncRequest {
     required this.uri,
     this.headers = const <String, String>{},
     this.body,
+    this.bodyBytes,
   });
 
   final String method;
   final Uri uri;
   final Map<String, String> headers;
+
+  /// 文本体（JSON 请求用）。
   final String? body;
+
+  /// 二进制体（云备份上传用）；与 [body] 二选一。
+  final Uint8List? bodyBytes;
 }
 
 /// 一次响应。
@@ -136,7 +185,11 @@ class HttpSyncTransport implements SyncTransport {
         .openUrl(request.method, request.uri)
         .timeout(timeout);
     request.headers.forEach(req.headers.set);
-    if (request.body != null) req.write(request.body!);
+    if (request.bodyBytes != null) {
+      req.add(request.bodyBytes!);
+    } else if (request.body != null) {
+      req.write(request.body!);
+    }
     final HttpClientResponse res = await req.close().timeout(timeout);
     final String body = await res
         .transform(utf8.decoder)
@@ -179,6 +232,8 @@ class SyncApiException implements Exception {
     'invalidCode' => '验证码不正确或已过期，请重新获取',
     'invalidInput' => '输入有误，请检查邮箱与验证码',
     'mailNotConfigured' => '服务器还没配置发信服务，请稍后再试',
+    'notFound' => '云端还没有备份',
+    'tooLarge' => '备份超过 20 MB，无法上传',
     'server' => '服务器出错了，请稍后再试',
     'invalidResponse' => '服务器返回了无法识别的数据',
     _ => '同步失败，请稍后重试',
@@ -255,10 +310,57 @@ class SyncApi {
     );
   }
 
+  // ── 云备份（P6.3）────────────────────────────────────────────────
+
+  /// 上传当前账本的备份 JSON（覆盖云端「最新备份」）。
+  Future<BackupInfo> uploadLatestBackup({
+    required String accessToken,
+    required List<int> bytes,
+  }) async {
+    final SyncResponse res = await _send(
+      'PUT',
+      '/v1/backups/latest',
+      bearer: accessToken,
+      bodyBytes: Uint8List.fromList(bytes),
+      auth: false,
+    );
+    return BackupInfo.fromJson(_jsonObject(res));
+  }
+
+  /// 下载云端最新备份原文。
+  Future<Uint8List> downloadLatestBackup(String accessToken) async {
+    final SyncResponse res = await _send(
+      'GET',
+      '/v1/backups/latest',
+      bearer: accessToken,
+      auth: false,
+    );
+    return Uint8List.fromList(utf8.encode(res.body));
+  }
+
+  /// 列出历史快照（最近 N 份）。
+  Future<List<BackupInfo>> listBackups(String accessToken) async {
+    final SyncResponse res = await _send(
+      'GET',
+      '/v1/backups',
+      bearer: accessToken,
+      auth: false,
+    );
+    final Object? decoded = jsonDecode(res.body);
+    if (decoded is! List<Object?>) {
+      throw const SyncApiException('invalidResponse');
+    }
+    return <BackupInfo>[
+      for (final Object? item in decoded)
+        if (item is Map<String, Object?>) BackupInfo.fromJson(item),
+    ];
+  }
+
   Future<SyncResponse> _send(
     String method,
     String path, {
     Map<String, Object>? body,
+    Uint8List? bodyBytes,
     String? bearer,
     required bool auth,
   }) async {
@@ -268,7 +370,7 @@ class SyncApi {
 
     final Map<String, String> headers = <String, String>{
       'accept': 'application/json',
-      if (body != null) 'content-type': 'application/json',
+      if (body != null || bodyBytes != null) 'content-type': 'application/json',
       if (bearer != null) 'authorization': 'Bearer $bearer',
     };
 
@@ -280,6 +382,7 @@ class SyncApi {
           uri: uri,
           headers: headers,
           body: body == null ? null : jsonEncode(body),
+          bodyBytes: bodyBytes,
         ),
       );
     } on TimeoutException {
@@ -302,6 +405,12 @@ class SyncApi {
     }
     if (res.statusCode == 429) {
       throw const SyncApiException('rateLimited', statusCode: 429);
+    }
+    if (res.statusCode == 404) {
+      throw const SyncApiException('notFound', statusCode: 404);
+    }
+    if (res.statusCode == 413) {
+      throw const SyncApiException('tooLarge', statusCode: 413);
     }
     if (!res.isSuccess) {
       throw SyncApiException(

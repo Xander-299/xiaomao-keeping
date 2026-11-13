@@ -5,6 +5,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -360,6 +361,120 @@ void main() {
       ]) {
         expect(SyncApiException(code).userMessage, isNotEmpty);
       }
+    });
+  });
+
+  group('云备份（P6.3）', () {
+    test('上传：PUT + Bearer + 字节体（不是 base64）', () async {
+      final _FakeTransport t = _FakeTransport(<SyncResponse>[
+        _json(200, <String, Object?>{
+          'size': 3,
+          'sha256': 'abc',
+          'createdAt': '2026-11-14T00:00:00.000Z',
+        }),
+      ]);
+
+      final BackupInfo info = await _api(t).uploadLatestBackup(
+        accessToken: 'access-1',
+        bytes: <int>[1, 2, 3],
+      );
+
+      final SyncRequest req = t.requests.single;
+      expect(req.method, 'PUT');
+      expect(req.uri.path, '/v1/backups/latest');
+      expect(req.headers['authorization'], 'Bearer access-1');
+      expect(req.headers['content-type'], 'application/json');
+      expect(req.body, isNull);
+      expect(req.bodyBytes, <int>[1, 2, 3]);
+      expect(info.size, 3);
+      expect(info.sizeLabel, '3 B');
+      expect(info.sha256, 'abc');
+    });
+
+    test('下载：返回原文字节', () async {
+      final _FakeTransport t = _FakeTransport(<SyncResponse>[
+        const SyncResponse(statusCode: 200, body: '{"transactions":[]}'),
+      ]);
+
+      final Uint8List bytes = await _api(t).downloadLatestBackup('a');
+      expect(utf8.decode(bytes), '{"transactions":[]}');
+      expect(t.requests.single.method, 'GET');
+      expect(t.requests.single.uri.path, '/v1/backups/latest');
+    });
+
+    test('列表：解析多份快照', () async {
+      final _FakeTransport t = _FakeTransport(<SyncResponse>[
+        SyncResponse(
+          statusCode: 200,
+          body: jsonEncode(<Object?>[
+            <String, Object?>{
+              'id': 'b1',
+              'size': 2048,
+              'sha256': 's1',
+              'createdAt': '2026-11-14T00:00:00.000Z',
+            },
+            <String, Object?>{
+              'id': 'b2',
+              'size': 1024,
+              'sha256': 's2',
+              'createdAt': '2026-11-13T00:00:00.000Z',
+            },
+          ]),
+        ),
+      ]);
+
+      final List<BackupInfo> list = await _api(t).listBackups('a');
+      expect(list, hasLength(2));
+      expect(list.first.id, 'b1');
+      expect(list.first.sizeLabel, '2.0 KB');
+      expect(list.last.sizeLabel, '1.0 KB');
+    });
+
+    test('404 → notFound（云端还没有备份）', () async {
+      final _FakeTransport t = _FakeTransport(<SyncResponse>[
+        _json(404, <String, Object?>{'error': 'not_found'}),
+      ]);
+      await expectLater(
+        _api(t).downloadLatestBackup('a'),
+        throwsA(
+          isA<SyncApiException>().having(
+            (SyncApiException e) => e.code,
+            'code',
+            'notFound',
+          ),
+        ),
+      );
+    });
+
+    test('413 → tooLarge', () async {
+      final _FakeTransport t = _FakeTransport(<SyncResponse>[
+        _json(413, <String, Object?>{'error': 'too_large'}),
+      ]);
+      await expectLater(
+        _api(t).uploadLatestBackup(accessToken: 'a', bytes: <int>[1]),
+        throwsA(
+          isA<SyncApiException>().having(
+            (SyncApiException e) => e.code,
+            'code',
+            'tooLarge',
+          ),
+        ),
+      );
+    });
+
+    test('开关关闭 → 业务闸门拒绝，一个请求都不发', () async {
+      final _FakeTransport t = _FakeTransport(<SyncResponse>[]);
+      await expectLater(
+        _api(t, enabled: false).listBackups('a'),
+        throwsA(
+          isA<SyncDeniedException>().having(
+            (SyncDeniedException e) => e.denial,
+            'denial',
+            CloudSyncDenial.disabledByUser,
+          ),
+        ),
+      );
+      expect(t.requests, isEmpty);
     });
   });
 
