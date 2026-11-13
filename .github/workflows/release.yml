@@ -1,0 +1,249 @@
+# CD：打 tag 即出包并发布到 GitHub Release
+#
+# 触发：push tag `v*`（或手动 workflow_dispatch 指定 tag）
+#
+# 三步：
+#   1. guard  —— 版本号 / 发布说明 / 提交已进 master，三者不齐直接失败（省掉白构建）
+#   2. build  —— 注入正式签名 keystore → `flutter build apk --release --split-per-abi`
+#                → 每个包跑 `tool/release_preflight.py`（含签名指纹比对）→ 传 artifact
+#   3. publish —— `gh release create`，上传三个 APK + SHA256SUMS，正文用 docs/release-notes-<tag>.md
+#
+# ── 一次性配置（仓库 Settings → Secrets and variables → Actions）────────────
+#   ANDROID_KEYSTORE_BASE64   正式签名 keystore 的 base64（`tool/keystore_to_base64.ps1` 生成）
+#   ANDROID_KEYSTORE_PASSWORD keystore 口令（即本地 key.properties 的 storePassword）
+#   ANDROID_KEY_PASSWORD      私钥口令（keyPassword）
+#   ANDROID_KEY_ALIAS         别名（本仓库是 `upload`）
+#
+# 指纹不需要单独配 secret：`tool/release_preflight.py` 里写死了 upload key 的 SHA-256
+# （与 v0.7.16 起同一把），签名不对它会直接 FAIL —— 这就是「注入错了 keystore」的兜底。
+#
+# ⚠️ 这些 secret 一旦泄露 = 别人能签出可覆盖安装你 App 的包。不要写进任何文件、不要贴聊天。
+#
+# ── 为什么不用 `flutter build` 隐式 pub get ────────────────────────────────
+# 出正式包必须保证插件注册表（.flutter-plugins-dependencies）在 —— v0.8.3 首包白屏就是
+# `--no-pub` + 缺这个文件导致的。所以这里显式 `flutter pub get` 之后再用 `--no-pub` 构建。
+
+name: CD · tag → Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的 tag（必须已存在于 master，如 v0.8.7）'
+        required: true
+        type: string
+      dry_run:
+        description: '只构建+校验，不创建 Release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
+
+jobs:
+  # ─────────────────────────── 1. 前置校验 ───────────────────────────
+  guard:
+    name: guard · 版本 / 说明 / 提交
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+      version: ${{ steps.vars.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 需要历史判断「这个提交在不在 master 上」
+
+      - id: vars
+        name: 解析 tag 并比对 pubspec 版本
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::tag 形态不对：$TAG（应形如 v0.8.7）"; exit 1; }
+
+          # tag 必须指向一个「已经在 master 上」的提交 —— 防止在未合并的分支上打 tag 发布
+          # （checkout 的 fetch-depth: 0 通常已带 tag，但不保证：显式再拉一次）
+          git fetch --quiet --tags --force origin master +refs/tags/*:refs/tags/*
+          if ! git merge-base --is-ancestor "$TAG^{commit}" origin/master; then
+            echo "::error::$TAG 指向的提交不在 master 上，拒绝发布"
+            exit 1
+          fi
+
+          # pubspec 的 versionName 必须等于 tag（去掉 v），否则包里版本和 Release 对不上
+          PUB_VERSION="$(sed -n 's/^version:[[:space:]]*\([0-9.]*\)+[0-9]*.*/\1/p' pubspec.yaml | head -1)"
+          if [[ "$PUB_VERSION" != "${TAG#v}" ]]; then
+            echo "::error::pubspec.yaml 是 $PUB_VERSION，tag 是 ${TAG#v} —— 先改版本号并合到 master 再打 tag"
+            exit 1
+          fi
+
+          # 发布说明必须存在（Release 正文直接引用它）
+          NOTES="docs/release-notes-$TAG.md"
+          if [[ ! -f "$NOTES" ]]; then
+            echo "::error::缺少 $NOTES —— 发布说明要和代码一起进 master"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$PUB_VERSION" >> "$GITHUB_OUTPUT"
+          echo "✓ $TAG / pubspec $PUB_VERSION / 说明 $NOTES"
+
+  # ─────────────────────────── 2. 出包 ───────────────────────────
+  build:
+    name: build · 三 ABI 正式包
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Ensure Android SDK 36 + CMake
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+            "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" > /dev/null
+          else
+            echo "::warning::找不到 sdkmanager，跳过补装（依赖 runner 预装）"
+          fi
+
+      - name: 注入正式签名
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          : "${KEYSTORE_B64:?缺少 secret ANDROID_KEYSTORE_BASE64 —— 没有它只能出 debug 签名的包，不允许发布}"
+          : "${STORE_PASS:?缺少 secret ANDROID_KEYSTORE_PASSWORD}"
+          : "${KEY_PASS:?缺少 secret ANDROID_KEY_PASSWORD}"
+          : "${KEY_ALIAS:?缺少 secret ANDROID_KEY_ALIAS}"
+
+          KEYSTORE="$GITHUB_WORKSPACE/android/upload-keystore.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+
+          # storeFile 用绝对路径：build.gradle.kts 里是 file(it)，相对路径会按 app/ 解析
+          cat > android/key.properties <<EOF
+          storeFile=$KEYSTORE
+          storePassword=$STORE_PASS
+          keyPassword=$KEY_PASS
+          keyAlias=$KEY_ALIAS
+          EOF
+          chmod 600 android/key.properties
+          echo "✓ keystore 与 key.properties 就位（$(du -h "$KEYSTORE" | cut -f1)）"
+
+      - name: Lower Gradle heap for runner
+        run: sed -i 's/-Xmx8G -XX:MaxMetaspaceSize=4G/-Xmx3G -XX:MaxMetaspaceSize=1G/' android/gradle.properties
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Build split APKs
+        run: flutter build apk --release --split-per-abi --no-pub
+
+      - name: 发布闸门（每个 ABI 都过 preflight，签名指纹自动比对）
+        run: |
+          set -euo pipefail
+          APK_DIR=build/app/outputs/flutter-apk
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            apk="$APK_DIR/app-$abi-release.apk"
+            [[ -f "$apk" ]] || { echo "::error::缺少 $apk"; exit 1; }
+            echo "── $abi ──"
+            python3 tool/release_preflight.py --apk "$apk"
+          done
+
+      - name: 重命名 + 校验和
+        id: pack
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.guard.outputs.tag }}"
+          OUT=dist && mkdir -p "$OUT"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            cp "build/app/outputs/flutter-apk/app-$abi-release.apk" \
+               "$OUT/yanxin-$TAG-$abi-release.apk"
+          done
+          (cd "$OUT" && sha256sum ./*.apk > SHA256SUMS.txt)
+          cat "$OUT/SHA256SUMS.txt"
+          ls -lh "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-apks
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  # ─────────────────────────── 3. 发布 ───────────────────────────
+  publish:
+    name: publish · GitHub Release
+    needs: [guard, build]
+    if: ${{ github.event_name == 'push' || github.event.inputs.dry_run != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # 建 Release + 传资产必须
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-apks
+          path: dist
+
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.guard.outputs.tag }}
+        run: |
+          set -euo pipefail
+          NOTES="docs/release-notes-$TAG.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在 → 覆盖上传资产"
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" \
+              --title "$(head -1 "$NOTES" | sed 's/^# //')" \
+              --notes-file "$NOTES" \
+              dist/*
+          fi
+
+      - name: 回读校验
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.guard.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "### $TAG 资产" >> "$GITHUB_STEP_SUMMARY"
+          gh release view "$TAG" --json assets \
+            --jq '.assets[] | "- `\(.name)` — \(.size) B"' >> "$GITHUB_STEP_SUMMARY"
+          COUNT="$(gh release view "$TAG" --json assets --jq '.assets | length')"
+          [[ "$COUNT" -ge 4 ]] || { echo "::error::资产数 $COUNT < 4（三个 APK + SHA256SUMS）"; exit 1; }
+          echo "✓ $TAG 发布完成，共 $COUNT 个资产"

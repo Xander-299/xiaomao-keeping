@@ -51,3 +51,8 @@
 |---|---|
 | `data_layer_probe.dart` / `data_layer_probe.py` | 让数据层脱离 Flutter 真跑（复制 `lib/` 到临时包 + 内存库），用于快速验证仓储 SQL |
 | `export_probe.dart` | 导出逻辑（CSV / JSON 备份）的真跑探针 |
+
+## `keystore_to_base64.ps1`
+
+把正式签名 keystore 转成 base64，用于配置 CD 的 `ANDROID_KEYSTORE_BASE64` secret
+（`.github/workflows/release.yml`）。输出等于签名凭据，只粘进 GitHub secret，别落盘、别贴聊天。
