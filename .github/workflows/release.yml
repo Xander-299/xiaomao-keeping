@@ -338,6 +338,8 @@ jobs:
           echo "✓ $TAG 发布完成，共 $COUNT 个资产"
 
       - name: 关掉历史的失败 issue
+        # 发布已经成功了，这一步只是收尾：它失败不该把整个 CD 标红
+        continue-on-error: true
         if: ${{ github.event_name == 'push' || github.event.inputs.dry_run != 'true' }}
         uses: actions/github-script@v7
         with:
