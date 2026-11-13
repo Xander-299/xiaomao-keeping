@@ -189,9 +189,19 @@ test('注销：账本文件与数据库行都真的没了', async () => {
   assert.equal(store.userIdByEmail('grace@example.com'), null, '用户行应被硬删');
   assert.equal(existsSync(userDir), false, '备份文件应被删除');
 
-  // token 还在有效期内，但用户没了 → 备份接口不能再返回任何东西
+  // token 还在有效期内，但用户没了 → 所有带鉴权的接口都必须 401（不能「复活」）
   const after = await fetch(`${base}/v1/backups/latest`, { headers: auth(accessToken) });
-  assert.ok(after.status === 404 || after.status === 401, '注销后不应再拿到数据');
+  assert.equal(after.status, 401, '注销后读备份必须 401');
+
+  const list = await fetch(`${base}/v1/backups`, { headers: auth(accessToken) });
+  assert.equal(list.status, 401, '注销后列备份必须 401');
+
+  const put = await fetch(`${base}/v1/backups/latest`, {
+    method: 'PUT',
+    headers: { ...auth(accessToken), 'content-type': 'application/json' },
+    body: new TextEncoder().encode('{"revived":true}'),
+  });
+  assert.equal(put.status, 401, '注销后不能再上传备份');
 });
 
 test('备份大小上限：超限返回 413', async () => {
