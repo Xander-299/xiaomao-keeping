@@ -214,3 +214,104 @@ test('备份大小上限：超限返回 413', async () => {
   });
   assert.equal(r.status, 413);
 });
+
+// ── P6.4 双向同步 ─────────────────────────────────────────────────────
+
+async function pushChanges(
+  token: string,
+  changes: Array<Record<string, unknown>>,
+): Promise<{ status: number; body: any }> {
+  const r = await fetch(`${base}/v1/sync/push`, {
+    method: 'POST',
+    headers: { ...auth(token), 'content-type': 'application/json' },
+    body: JSON.stringify({ changes }),
+  });
+  return { status: r.status, body: await r.json() };
+}
+
+async function pullChanges(
+  token: string,
+  since = 0,
+): Promise<{ status: number; body: any }> {
+  const r = await fetch(`${base}/v1/sync/pull?since=${since}&limit=200`, {
+    headers: auth(token),
+  });
+  return { status: r.status, body: await r.json() };
+}
+
+function change(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    entity: 'account',
+    bookId: 'book-1',
+    id: 'acc-1',
+    updatedAt: 1000,
+    deleted: false,
+    payload: { id: 'acc-1', bookId: 'book-1', name: '现金' },
+    ...overrides,
+  };
+}
+
+test('同步：push 后 pull 能拿到同一条变更', async () => {
+  const { accessToken } = await login('sync-a@example.com');
+  const pushed = await pushChanges(accessToken, [change()]);
+  assert.equal(pushed.status, 200);
+  assert.equal(pushed.body.applied, 1);
+
+  const pulled = await pullChanges(accessToken, 0);
+  assert.equal(pulled.status, 200);
+  assert.equal(pulled.body.changes.length, 1);
+  assert.equal(pulled.body.changes[0].id, 'acc-1');
+  assert.equal(pulled.body.changes[0].payload.name, '现金');
+  assert.equal(pulled.body.hasMore, false);
+});
+
+test('同步：LWW —— 旧值后到不覆盖新值，旧值作为 conflict 返回', async () => {
+  const { accessToken } = await login('sync-b@example.com');
+  await pushChanges(accessToken, [change({ updatedAt: 2000, payload: { name: '新' } })]);
+  const older = await pushChanges(accessToken, [
+    change({ updatedAt: 1000, payload: { name: '旧' } }),
+  ]);
+  assert.equal(older.body.applied, 0);
+  assert.equal(older.body.conflicts.length, 1);
+  assert.equal(older.body.conflicts[0].updatedAt, 2000);
+  assert.equal(older.body.conflicts[0].payload.name, '新');
+
+  const pulled = await pullChanges(accessToken, 0);
+  assert.equal(pulled.body.changes.at(-1).payload.name, '新');
+});
+
+test('同步：同 updatedAt 幂等，服务端保留原值', async () => {
+  const { accessToken } = await login('sync-c@example.com');
+  await pushChanges(accessToken, [change({ updatedAt: 3000, payload: { name: 'A' } })]);
+  const again = await pushChanges(accessToken, [
+    change({ updatedAt: 3000, payload: { name: 'B' } }),
+  ]);
+  assert.equal(again.body.applied, 0);
+  assert.equal(again.body.conflicts[0].payload.name, 'A');
+});
+
+test('同步：墓碑（deleted）能被 pull 到', async () => {
+  const { accessToken } = await login('sync-d@example.com');
+  await pushChanges(accessToken, [change({ updatedAt: 1000 })]);
+  await pushChanges(accessToken, [
+    change({ updatedAt: 4000, deleted: true, payload: {} }),
+  ]);
+  const pulled = await pullChanges(accessToken, 0);
+  const last = pulled.body.changes.at(-1);
+  assert.equal(last.deleted, true);
+  assert.equal(last.updatedAt, 4000);
+});
+
+test('同步：跨用户隔离 —— B 看不到 A 的变更', async () => {
+  const a = await login('sync-e@example.com');
+  const b = await login('sync-f@example.com');
+  await pushChanges(a.accessToken, [change({ id: 'acc-a' })]);
+  const pulled = await pullChanges(b.accessToken, 0);
+  assert.equal(pulled.body.changes.length, 0);
+});
+
+test('同步：非法 entity → 400', async () => {
+  const { accessToken } = await login('sync-g@example.com');
+  const r = await pushChanges(accessToken, [change({ entity: 'evil' })]);
+  assert.equal(r.status, 400);
+});

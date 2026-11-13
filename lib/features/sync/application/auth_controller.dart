@@ -197,6 +197,10 @@ class AuthController extends AsyncNotifier<AuthState> {
     (String token) => ref.read(syncApiProvider).downloadLatestBackup(token),
   );
 
+  /// 供同步引擎复用「401 自动续期」。
+  Future<T> authorized<T>(Future<T> Function(String accessToken) run) =>
+      _withAuth(run);
+
   /// 带一次 401 续期的调用：refresh 成功 → 落新 token → 重放一次。
   Future<T> _withAuth<T>(Future<T> Function(String token) run) async {
     final AuthState? current = state.value;

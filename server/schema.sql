@@ -55,3 +55,18 @@ CREATE TABLE IF NOT EXISTS code_sends (
 );
 CREATE INDEX IF NOT EXISTS idx_code_sends_email ON code_sends(email, sent_at);
 CREATE INDEX IF NOT EXISTS idx_code_sends_ip ON code_sends(ip, sent_at);
+
+-- P6.4 双向同步：增量变更日志（每用户每实体一行，LWW 覆盖后删旧插新以刷新 seq）
+CREATE TABLE IF NOT EXISTS sync_changes (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     TEXT NOT NULL,
+  book_id     TEXT NOT NULL,
+  entity      TEXT NOT NULL,
+  entity_id   TEXT NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  deleted     INTEGER NOT NULL DEFAULT 0,
+  payload     TEXT NOT NULL,
+  server_at   INTEGER NOT NULL,
+  UNIQUE(user_id, book_id, entity, entity_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sync_user_seq ON sync_changes(user_id, seq);

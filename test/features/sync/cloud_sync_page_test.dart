@@ -253,8 +253,12 @@ void main() {
     final ToonButton restore = tester.widget<ToonButton>(
       find.byKey(const ValueKey<String>('cloudBackupRestore')),
     );
+    final ToonButton syncNow = tester.widget<ToonButton>(
+      find.byKey(const ValueKey<String>('cloudSyncNow')),
+    );
     expect(upload.onPressed, isNull);
     expect(restore.onPressed, isNull);
+    expect(syncNow.onPressed, isNull);
     expect(find.textContaining('打开上方'), findsOneWidget);
   });
 
@@ -290,8 +294,12 @@ void main() {
     final ToonButton restore = tester.widget<ToonButton>(
       find.byKey(const ValueKey<String>('cloudBackupRestore')),
     );
+    final ToonButton syncNow = tester.widget<ToonButton>(
+      find.byKey(const ValueKey<String>('cloudSyncNow')),
+    );
     expect(upload.onPressed, isNotNull);
     expect(restore.onPressed, isNull);
+    expect(syncNow.onPressed, isNotNull);
     expect(transport.requests.single.uri.path, '/v1/backups');
   });
 }
