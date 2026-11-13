@@ -27,7 +27,28 @@ JWT_SECRET=$(openssl rand -hex 24) CODE_PEPPER=$(openssl rand -hex 24) \
 curl -i localhost:8787/v1/backups     # 401 —— 服务活着且鉴权生效
 ```
 
-想跑测试（**21 条：13 条纯函数 + 8 条真起服务打真请求的端到端**）：
+### 发信配置（二选一）
+
+```bash
+# ① Resend（需要自己注册的域名）
+RESEND_API_KEY=re_xxx
+MAIL_FROM='小耄记账 <no-reply@你的域名>'
+
+# ② SMTP（126 / 163 / QQ 邮箱的「授权码」；不需要域名）
+MAIL_PROVIDER=smtp
+SMTP_HOST=smtp.126.com
+SMTP_PORT=465
+SMTP_SECURE=1
+SMTP_USER=you@126.com
+SMTP_PASS=客户端授权码
+MAIL_FROM='小耄记账 <you@126.com>'
+```
+
+- 本地开发可用 `DEV_ECHO_CODE=1`：验证码打到 stdout（systemd 下进 `journalctl`），不真发信；
+- **生产必须去掉 `DEV_ECHO_CODE`**，否则任何能看日志的人都能登录任意邮箱；
+- SMTP 实现是手写的最小客户端（`src/node/mail.ts`，零运行时依赖），只支持 `AUTH LOGIN` + 纯文本。
+
+想跑测试（**25 条：13 条纯函数 + 8 条端到端 + 4 条 SMTP 协议**）：
 
 ```bash
 node --test src/core.test.ts src/node/app.test.ts

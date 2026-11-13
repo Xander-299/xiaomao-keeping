@@ -29,11 +29,15 @@ import {
   verifyJwt,
 } from '../core.ts';
 import type { Store } from './store.ts';
+import { sendSmtpMail, type SmtpConfig } from './mail.ts';
 
 export interface AppConfig {
   jwtSecret: string;
   codePepper: string;
   mailFrom?: string;
+  /** `resend`（默认）或 `smtp`（126 / 163 / QQ 授权码）。 */
+  mailProvider?: 'resend' | 'smtp';
+  smtp?: SmtpConfig;
   resendApiKey?: string;
   /** 本地/测试：验证码不走邮件，交给 onDevCode 或打到 stdout。 */
   devEchoCode?: boolean;
@@ -124,6 +128,27 @@ export function createHandler(store: Store, cfg: AppConfig) {
       else console.log(`[dev] login code for ${email}: ${code}`);
       return true;
     }
+
+    const subject = '小耄记账 · 登录验证码';
+    const text = `你的验证码是 ${code}，5 分钟内有效。\n\n不是你本人操作？忽略这封邮件即可，你的账本不会被动。`;
+
+    // SMTP（126 / 163 / QQ 邮箱授权码）：无需域名，适合个人自建
+    if (cfg.mailProvider === 'smtp' && cfg.smtp && cfg.mailFrom) {
+      try {
+        await sendSmtpMail(cfg.smtp, {
+          from: cfg.mailFrom,
+          to: email,
+          subject,
+          text,
+        });
+        return true;
+      } catch (error) {
+        // 不打印授权码；只留失败原因
+        console.error(`[mail] SMTP 发送失败：${(error as Error).message}`);
+        return false;
+      }
+    }
+
     if (!cfg.mailFrom || !cfg.resendApiKey) return false;
 
     const res = await fetch('https://api.resend.com/emails', {
@@ -135,8 +160,8 @@ export function createHandler(store: Store, cfg: AppConfig) {
       body: JSON.stringify({
         from: cfg.mailFrom,
         to: [email],
-        subject: '小耄记账 · 登录验证码',
-        text: `你的验证码是 ${code}，5 分钟内有效。\n\n不是你本人操作？忽略这封邮件即可，你的账本不会被动。`,
+        subject,
+        text,
       }),
     });
     return res.ok;

@@ -89,6 +89,25 @@ sudo chmod 600 /opt/xiaomao-sync/.env
 - 两个 secret 都是 `openssl rand` 现生成、直接写进文件，**不经终端回显、不进仓库**；
 - 想先不发邮件、只看链路通不通：把 `DEV_ECHO_CODE=1` 加进去（验证码打到 `journalctl`）。
 
+**发信二选一**（改完 `systemctl restart xiaomao-sync`）：
+
+```bash
+# A. Resend（需要自己注册的域名）
+RESEND_API_KEY=re_xxx
+MAIL_FROM=小耄记账 <no-reply@你的域名>
+
+# B. SMTP 授权码（126 / 163 / QQ 邮箱；不需要域名）
+MAIL_PROVIDER=smtp
+SMTP_HOST=smtp.126.com
+SMTP_PORT=465
+SMTP_SECURE=1
+SMTP_USER=you@126.com
+SMTP_PASS=客户端授权码
+MAIL_FROM=小耄记账 <you@126.com>
+```
+
+> 上线前**必须删掉 `DEV_ECHO_CODE=1`**，否则任何能读日志的人都能登录任意邮箱。
+
 ## 4 · 建库（不用手动，启动即建）
 
 首次启动会自动执行 `schema.sql`（全是 `CREATE ... IF NOT EXISTS`，重复跑安全）。
