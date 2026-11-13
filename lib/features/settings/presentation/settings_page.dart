@@ -13,6 +13,8 @@ import 'package:yanxin/core/theme/theme_seed.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/features/settings/application/theme_controller.dart';
 import 'package:yanxin/features/settings/presentation/look_and_feel_page.dart';
+import 'package:yanxin/features/sync/application/auth_controller.dart';
+import 'package:yanxin/features/sync/presentation/cloud_sync_page.dart';
 import 'package:yanxin/ui_kit/app_settings_tile.dart';
 
 /// 设置。
@@ -27,6 +29,15 @@ class SettingsPage extends ConsumerWidget {
         ref.watch(themeModeProvider).value ?? ToonThemeMode.light;
     final ToonSeed seed =
         ref.watch(themeSeedProvider).value ?? ToonSeed.amber;
+    // 云同步（P6.2）：未登录也可能有上次的邮箱，副标题必须说清当前状态
+    final AuthState auth =
+        ref.watch(authControllerProvider).value ?? const AuthState();
+    final bool syncOn =
+        ref.watch(cloudSyncEnabledProvider).value ?? false;
+    final String cloudSubtitle = auth.signedIn
+        ? '已登录${auth.email == null ? '' : ' ${auth.email}'} · '
+              '${syncOn ? '同步已开启' : '同步已关闭'}'
+        : '未登录 · 登录后可换机恢复（云备份开发中）';
 
     return Scaffold(
       // 设置页用纯卡片底色（与「我的」一致），不是全局暖白画布
@@ -77,6 +88,23 @@ class SettingsPage extends ConsumerWidget {
                 title: '首页布局',
                 subtitle: '显示 / 隐藏与排序首页模块',
                 onTap: () => context.push('/dashboard-layout'),
+              ),
+            ),
+          ),
+          const ToonSectionTitle(title: '数据'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+            child: ToonCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              clip: true,
+              child: AppSettingsTile(
+                icon: Icons.cloud_sync_rounded,
+                title: '云同步',
+                subtitle: cloudSubtitle,
+                // 测试里没有 GoRouter → 与外观子页同款，用 Navigator.push
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const CloudSyncPage()),
+                ),
               ),
             ),
           ),

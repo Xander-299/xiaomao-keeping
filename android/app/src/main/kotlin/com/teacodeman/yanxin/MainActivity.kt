@@ -5,6 +5,7 @@ import com.teacodeman.yanxin.autobook.AutoBookChannel
 import com.teacodeman.yanxin.autobook.AutoBookNotifier
 import com.teacodeman.yanxin.autobook.AutoBookQueue
 import com.teacodeman.yanxin.ocr.OcrChannel
+import com.teacodeman.yanxin.secure.SecureStoreChannel
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
@@ -25,6 +26,7 @@ class MainActivity : FlutterActivity() {
 
     private var autoBookChannel: AutoBookChannel? = null
     private var ocrChannel: OcrChannel? = null
+    private var secureStoreChannel: SecureStoreChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -36,6 +38,11 @@ class MainActivity : FlutterActivity() {
         val ocr = OcrChannel(this)
         ocr.attach(flutterEngine.dartExecutor.binaryMessenger)
         ocrChannel = ocr
+
+        // 登录态安全存储（P6.2）：Keystore 加密小段 JSON，不碰数据库
+        val secure = SecureStoreChannel(this)
+        secure.attach(flutterEngine.dartExecutor.binaryMessenger)
+        secureStoreChannel = secure
 
         // 冷启动带进来的 intent（分享 / 通知按钮）在这里处理 —— 通道已就绪
         handleAutoBookIntent(intent)
@@ -52,6 +59,8 @@ class MainActivity : FlutterActivity() {
         autoBookChannel = null
         ocrChannel?.detach()
         ocrChannel = null
+        secureStoreChannel?.detach()
+        secureStoreChannel = null
         super.onDestroy()
     }
 
