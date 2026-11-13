@@ -26,10 +26,30 @@ if (jwtSecret.length < 32 || codePepper.length < 32) {
   process.exit(1);
 }
 
+const smtpPort = Number(process.env.SMTP_PORT ?? 465);
+const smtp = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
+  ? {
+      host: process.env.SMTP_HOST,
+      port: smtpPort,
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+      // 465 = 隐式 TLS；其他端口默认明文（测试用），可用 SMTP_SECURE=1 强制
+      secure: (process.env.SMTP_SECURE ?? (smtpPort === 465 ? '1' : '0')) === '1',
+    }
+  : undefined;
+const mailProvider =
+  process.env.MAIL_PROVIDER === 'smtp' || process.env.MAIL_PROVIDER === 'resend'
+    ? process.env.MAIL_PROVIDER
+    : smtp
+      ? 'smtp'
+      : 'resend';
+
 const handler = createHandler(store, {
   jwtSecret,
   codePepper,
   mailFrom: process.env.MAIL_FROM,
+  mailProvider,
+  smtp,
   resendApiKey: process.env.RESEND_API_KEY,
   devEchoCode: process.env.DEV_ECHO_CODE === '1',
 });

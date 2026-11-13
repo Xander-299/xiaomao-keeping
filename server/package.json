@@ -6,7 +6,7 @@
     "start": "node src/node/main.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "typecheck:worker": "tsc --noEmit -p tsconfig.worker.json",
-    "test": "node --test src/core.test.ts src/node/app.test.ts",
+    "test": "node --test src/core.test.ts src/node/app.test.ts src/node/mail.test.ts",
     "dev": "node --watch src/node/main.ts",
     "deploy": "wrangler deploy"
   },
