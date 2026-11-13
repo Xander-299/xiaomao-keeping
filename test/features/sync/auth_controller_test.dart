@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/network/cloud_sync_gate.dart';
 import 'package:yanxin/core/network/sync_api.dart';
+import 'package:yanxin/core/network/sync_endpoints.dart';
 import 'package:yanxin/core/security/token_store.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/data/repositories/app_meta_repository.dart';
@@ -333,7 +334,7 @@ void main() {
       await h.container.read(authControllerProvider.future);
       await h.container.read(cloudSyncEnabledProvider.future);
 
-      final Uri business = Uri.parse('https://sync.xiaomao.app/v1/backups');
+      final Uri business = SyncEndpoints.resolve('/v1/backups');
       expect(
         h.container.read(cloudSyncGateProvider).denialFor(business),
         CloudSyncDenial.signedOut,
