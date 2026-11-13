@@ -72,9 +72,9 @@
 
 > ⚠️ 未上架任何应用商店。系统提示「未知来源」时，允许**当前这个文件管理器**安装即可。
 
-[apk-arm64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.6/yanxin-v0.8.6-arm64-v8a-release.apk
-[apk-armv7]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.6/yanxin-v0.8.6-armeabi-v7a-release.apk
-[apk-x64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.6/yanxin-v0.8.6-x86_64-release.apk
+[apk-arm64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.7/yanxin-v0.8.7-arm64-v8a-release.apk
+[apk-armv7]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.7/yanxin-v0.8.7-armeabi-v7a-release.apk
+[apk-x64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.7/yanxin-v0.8.7-x86_64-release.apk
 [releases]: https://github.com/Xander-299/xiaomao-keeping/releases
 
 ---
@@ -258,11 +258,11 @@ flutter build apk --release --target-platform android-arm,android-arm64,android-
 
 | 维度 | 数据 |
 |---|---|
-| 代码量 | Dart **151 个源文件 / 30,198 行**（含 `part`）· Kotlin **9 个文件 / 1,689 行** |
-| 测试 | **73 个测试文件** · 668 处 `test()` / `testWidgets()`（实跑 **740 passed / 6 skipped**） |
-| 迭代 | **200+ 次提交** · **19 个版本 tag**（`v0.7.1` – `v0.7.17`、`v0.8.1`、`v0.8.2`） |
+| 代码量 | Dart **181 个源文件 / 38,721 行**（含 `part`）· Kotlin **9 个文件 / 1,689 行** |
+| 测试 | **98 个测试文件** · 847 处 `test()` / `testWidgets()`（实跑 **918 passed / 6 skipped**） |
+| 迭代 | **324 次提交** · **24 个版本 tag**（`v0.7.1` – `v0.7.17`、`v0.8.1` – `v0.8.7`） |
 | 验证环境 | MuMu 模拟器 + **Redmi K50 真机**（Android 14 / HyperOS，adb 全包走查）|
-| 性能基线 | 冷启动 **613.8 ms** · 热启动 **82.4 ms** · 常驻 **43.3 MB** · release APK **46.44 MB** |
+| 性能基线 | 冷启动 **613.8 ms** · 热启动 **82.4 ms** · 常驻 **43.3 MB** · release APK（arm64）**40.9 MB** |
 
 > 数字取自仓库本身（`git rev-list --count HEAD`、文件行数统计），可复算。
 

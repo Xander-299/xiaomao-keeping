@@ -23,7 +23,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 #   - git tag / 「我的页」角标 = 人看的版本号（`tag = v0.7.<N>` ↔ `F7.<N>`）
 # versionCode **只增不减**：v0.8.1 = 2001，v0.8.2 = 2002（走查机/用户机已装 2001 的正式签名包，
 # 改小会撞 `INSTALL_FAILED_VERSION_DOWNGRADE`）。
-version: 0.8.6+2006
+version: 0.8.7+2007
 
 environment:
   sdk: ^3.13.2
