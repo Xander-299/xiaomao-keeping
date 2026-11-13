@@ -10,8 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/security/token_store.dart';
-import 'package:yanxin/core/theme/palette.dart';
 import 'package:yanxin/core/theme/tokens.dart';
+import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/data/repositories/app_meta_repository.dart';
 import 'package:yanxin/features/sync/application/auth_controller.dart';
@@ -168,6 +168,15 @@ void main() {
     expect(transport.requests.single.uri.path, '/v1/auth/verify');
     expect(find.text('me@example.com'), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('cloudSyncSwitch')), findsOneWidget);
+
+    // P6.3 之后页面变长，退出/注销在下方 → 先滚下去
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey<String>('cloudBackupUpload')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey<String>('cloudSyncSignOut')),
       findsOneWidget,
@@ -211,5 +220,78 @@ void main() {
       stored = await AppMetaRepository(db).get(kCloudSyncEnabledKey);
     }
     expect(stored, '1');
+  });
+
+  testWidgets('开关关闭：备份 / 恢复按钮置灰并提示', (WidgetTester tester) async {
+    final AppDatabase db = openTestDatabase();
+    addTearDown(db.close);
+    final MemoryTokenStore store = MemoryTokenStore();
+    await store.write(
+      kSyncSessionKey,
+      AuthSession(
+        accessToken: 'a',
+        refreshToken: 'r',
+        expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+      ).toStorageJson(),
+    );
+    await store.write(kSyncEmailKey, 'me@example.com');
+
+    await _pumpPage(
+      tester,
+      db: db,
+      store: store,
+      transport: _QueueTransport(<SyncResponse>[]),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pump();
+
+    final ToonButton upload = tester.widget<ToonButton>(
+      find.byKey(const ValueKey<String>('cloudBackupUpload')),
+    );
+    final ToonButton restore = tester.widget<ToonButton>(
+      find.byKey(const ValueKey<String>('cloudBackupRestore')),
+    );
+    expect(upload.onPressed, isNull);
+    expect(restore.onPressed, isNull);
+    expect(find.textContaining('打开上方'), findsOneWidget);
+  });
+
+  testWidgets('开关打开且云端无备份：显示提示，恢复置灰', (WidgetTester tester) async {
+    final AppDatabase db = openTestDatabase();
+    addTearDown(db.close);
+    await AppMetaRepository(db).set(kCloudSyncEnabledKey, '1');
+    final MemoryTokenStore store = MemoryTokenStore();
+    await store.write(
+      kSyncSessionKey,
+      AuthSession(
+        accessToken: 'a',
+        refreshToken: 'r',
+        expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+      ).toStorageJson(),
+    );
+    await store.write(kSyncEmailKey, 'me@example.com');
+
+    final _QueueTransport transport = _QueueTransport(<SyncResponse>[
+      const SyncResponse(statusCode: 200, body: '[]'),
+    ]);
+    await _pumpPage(tester, db: db, store: store, transport: transport);
+    for (int i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pump();
+
+    expect(find.text('云端还没有备份'), findsOneWidget);
+    final ToonButton upload = tester.widget<ToonButton>(
+      find.byKey(const ValueKey<String>('cloudBackupUpload')),
+    );
+    final ToonButton restore = tester.widget<ToonButton>(
+      find.byKey(const ValueKey<String>('cloudBackupRestore')),
+    );
+    expect(upload.onPressed, isNotNull);
+    expect(restore.onPressed, isNull);
+    expect(transport.requests.single.uri.path, '/v1/backups');
   });
 }

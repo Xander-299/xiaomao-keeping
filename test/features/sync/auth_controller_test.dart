@@ -324,6 +324,89 @@ void main() {
     });
   });
 
+  group('云备份（P6.3）', () {
+    test('latestBackup：空列表 → null；有快照 → 第一条', () async {
+      final MemoryTokenStore store = MemoryTokenStore();
+      await _storedSession(store);
+      final _QueueTransport transport = _QueueTransport(<Object>[
+        const SyncResponse(statusCode: 200, body: '[]'),
+        SyncResponse(
+          statusCode: 200,
+          body: jsonEncode(<Object?>[
+            <String, Object?>{
+              'id': 'b1',
+              'size': 12,
+              'sha256': 's',
+              'createdAt': '2026-11-14T00:00:00.000Z',
+            },
+          ]),
+        ),
+      ]);
+      final h = _harness(store: store, transport: transport);
+      await h.container.read(authControllerProvider.future);
+      await h.container.read(cloudSyncEnabledProvider.future);
+      await h.container.read(cloudSyncEnabledProvider.notifier).setEnabled(true);
+      final notifier = h.container.read(authControllerProvider.notifier);
+
+      expect(await notifier.latestBackup(), isNull);
+      final BackupInfo? info = await notifier.latestBackup();
+      expect(info?.id, 'b1');
+      expect(info?.size, 12);
+    });
+
+    test('downloadLatestBackup：字节原样返回', () async {
+      final MemoryTokenStore store = MemoryTokenStore();
+      await _storedSession(store);
+      final _QueueTransport transport = _QueueTransport(<Object>[
+        const SyncResponse(statusCode: 200, body: '{"transactions":[]}'),
+      ]);
+      final h = _harness(store: store, transport: transport);
+      await h.container.read(authControllerProvider.future);
+      await h.container.read(cloudSyncEnabledProvider.future);
+      await h.container.read(cloudSyncEnabledProvider.notifier).setEnabled(true);
+
+      final bytes = await h.container
+          .read(authControllerProvider.notifier)
+          .downloadLatestBackup();
+      expect(utf8.decode(bytes), '{"transactions":[]}');
+      expect(transport.requests.single.uri.path, '/v1/backups/latest');
+      expect(transport.requests.single.headers['authorization'], 'Bearer access-old');
+    });
+
+    test('上传：401 → refresh → 用新 token 重放，字节体是备份 JSON', () async {
+      final MemoryTokenStore store = MemoryTokenStore();
+      await _storedSession(store);
+      final _QueueTransport transport = _QueueTransport(<Object>[
+        const SyncResponse(statusCode: 401, body: ''),
+        _json(200, _tokenBody('access-new', 'refresh-new')),
+        _json(200, <String, Object?>{
+          'size': 100,
+          'sha256': 'abc',
+          'createdAt': '2026-11-14T00:00:00.000Z',
+        }),
+      ]);
+      final h = _harness(store: store, transport: transport);
+      await h.container.read(authControllerProvider.future);
+      await h.container.read(cloudSyncEnabledProvider.future);
+      await h.container.read(cloudSyncEnabledProvider.notifier).setEnabled(true);
+
+      final BackupInfo info = await h.container
+          .read(authControllerProvider.notifier)
+          .uploadCurrentBackup();
+
+      expect(info.size, 100);
+      expect(transport.requests, hasLength(3));
+      expect(transport.requests[0].uri.path, '/v1/backups/latest');
+      expect(transport.requests[1].uri.path, '/v1/auth/refresh');
+      expect(transport.requests[2].headers['authorization'], 'Bearer access-new');
+
+      final List<int> sent = transport.requests[2].bodyBytes!;
+      expect(sent, isNotEmpty);
+      expect(utf8.decode(sent), contains('"transactions"'));
+      expect(utf8.decode(sent), contains('"book"'));
+    });
+  });
+
   group('闸门派生的登录态', () {
     test('未登录 → signedOut；登录但开关关 → disabledByUser', () async {
       final MemoryTokenStore store = MemoryTokenStore();
