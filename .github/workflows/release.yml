@@ -180,11 +180,12 @@ jobs:
             python3 tool/release_preflight.py --apk "$apk"
           done
 
-      - name: 重命名 + 校验和
+      - name: 重命名 + 校验和 + 验证说明
         id: pack
         run: |
           set -euo pipefail
           TAG="${{ needs.guard.outputs.tag }}"
+          VERSION="${{ needs.guard.outputs.version }}"
           OUT=dist && mkdir -p "$OUT"
           for abi in arm64-v8a armeabi-v7a x86_64; do
             cp "build/app/outputs/flutter-apk/app-$abi-release.apk" \
@@ -192,14 +193,83 @@ jobs:
           done
           (cd "$OUT" && sha256sum ./*.apk > SHA256SUMS.txt)
           cat "$OUT/SHA256SUMS.txt"
+
+          # 签名指纹：拿 arm64 那个包问 apksigner（三包同一签名）
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort | tail -1)"
+          CERT_SHA="$("$APKSIGNER" verify --print-certs "$OUT/yanxin-$TAG-arm64-v8a-release.apk" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr 'A-F' 'a-f')"
+          echo "cert sha256 = $CERT_SHA"
+
+          # 逐包版本码（4000+ / 3000+ / 6000+ 的 ABI 偏移，方便用户核对）
+          cat > "$OUT/VERIFY.md" <<VERIFY
+          # 校验与安装（$TAG）
+
+          本页所有哈希都由 CI 在**构建机上**生成，与仓库里的源码一一对应。
+
+          ## 1. 校验下载是否完整
+
+          \`\`\`bash
+          # Linux / macOS（在 APK 与 SHA256SUMS.txt 同一个目录）
+          sha256sum -c SHA256SUMS.txt
+
+          # Windows（PowerShell）
+          Get-FileHash .\yanxin-$TAG-arm64-v8a-release.apk -Algorithm SHA256
+          # 与下面表格里的值逐字比对
+          \`\`\`
+
+          | 包 | SHA-256 |
+          |---|---|
+          $(cd "$OUT" && sha256sum ./*.apk | sed 's|\./||' | awk '{printf "| `%s` | `%s` |\n", $2, $1}')
+
+          ## 2. 校验签名是不是"同一把钥匙"
+
+          三个包都用同一把 upload key 签名（自 $TAG 起沿用，未更换）：
+
+          \`\`\`
+          证书 SHA-256：$CERT_SHA
+          证书主体    ：CN=yanxin
+          \`\`\`
+
+          手机上装过的旧版本能直接覆盖安装 = 签名一致。想用工具核对：
+
+          \`\`\`bash
+          # 需要 Android SDK build-tools
+          apksigner verify --print-certs yanxin-$TAG-arm64-v8a-release.apk
+          \`\`\`
+
+          \`\`\`powershell
+          # 没有 SDK？看 APK 内 META-INF/*.RSA 的证书指纹也行
+          # 或用 Android Studio 的 Build > Analyze APK
+          \`\`\`
+
+          ## 3. 装哪个
+
+          | 你的手机 | 下哪个 |
+          |---|---|
+          | 近几年任意 Android（arm64） | \`yanxin-$TAG-arm64-v8a-release.apk\` |
+          | 很老的 32 位机器 | \`yanxin-$TAG-armeabi-v7a-release.apk\` |
+          | 模拟器 / x86 平板 | \`yanxin-$TAG-x86_64-release.apk\` |
+
+          版本名 **$VERSION**；同一版本三个包的 versionCode 分别带 ABI 偏移（4000+/3000+/6000+），
+          升级时系统只认 versionCode 变大，**装错 ABI 会提示"应用未安装"**，换对应包即可。
+
+          ## 4. 这个包是不是官方构建
+
+          - 构建日志：GitHub Actions 的 \`CD · tag → Release\` 运行记录（每次发布都有，可复现）；
+          - 源码：本仓库对应 tag \`$TAG\` 的提交；
+          - 校验和 / 签名指纹如上 —— **任何一项对不上就别装**。
+          VERIFY
+
           ls -lh "$OUT"
+          echo "--- VERIFY.md 前 12 行 ---"
+          head -12 "$OUT/VERIFY.md"
 
       - uses: actions/upload-artifact@v4
         with:
           name: release-apks
           path: dist/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
 
   # ─────────────────────────── 3. 发布 ───────────────────────────
   publish:
@@ -245,5 +315,116 @@ jobs:
           gh release view "$TAG" --json assets \
             --jq '.assets[] | "- `\(.name)` — \(.size) B"' >> "$GITHUB_STEP_SUMMARY"
           COUNT="$(gh release view "$TAG" --json assets --jq '.assets | length')"
-          [[ "$COUNT" -ge 4 ]] || { echo "::error::资产数 $COUNT < 4（三个 APK + SHA256SUMS）"; exit 1; }
+          [[ "$COUNT" -ge 5 ]] || { echo "::error::资产数 $COUNT < 5（三个 APK + SHA256SUMS + VERIFY.md）"; exit 1; }
           echo "✓ $TAG 发布完成，共 $COUNT 个资产"
+
+      - name: 关掉历史的失败 issue
+        if: ${{ github.event_name == 'push' || github.event.inputs.dry_run != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ needs.guard.outputs.tag }}';
+            const { owner, repo } = context.repo;
+            const open = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', labels: 'release-failure', per_page: 50,
+            });
+            for (const issue of open.data) {
+              if (!issue.title.includes(tag)) continue;
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number,
+                body: `✅ 后续发布成功：${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}\n已自动关闭。`,
+              });
+              await github.rest.issues.update({
+                owner, repo, issue_number: issue.number, state: 'closed',
+              });
+            }
+
+  # ─────────────────────────── 4. 失败通知 ───────────────────────────
+  # 发布失败时自动开一个 issue（同一 tag 反复失败就追加评论，不刷屏），
+  # 成功发布时由 publish job 自动关掉。不需要任何第三方服务，只用仓库自带能力。
+  notify:
+    name: notify · 失败通知
+    needs: [guard, build, publish]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const fallbackTag = context.ref.replace('refs/tags/', '');
+            const tag = '${{ needs.guard.outputs.tag }}' || fallbackTag || 'unknown';
+            const dry = context.eventName === 'workflow_dispatch' && '${{ github.event.inputs.dry_run }}' === 'true';
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            // 哪个 job 红的（guard / build / publish）
+            const jobs = await github.rest.actions.listJobsForWorkflowRun({
+              owner, repo, run_id: context.runId,
+            });
+            const failed = jobs.data.jobs
+              .filter(j => j.conclusion === 'failure')
+              .map(j => `- \`${j.name}\`（[日志](${j.html_url})）`)
+              .join('\n') || '- （没有失败 job？看运行页）';
+
+            const hints = [
+              '| 症状 | 大概率原因 |',
+              '|---|---|',
+              '| `缺少 secret ANDROID_KEYSTORE_*` | 签名 secret 没配齐 / 名字打错（全大写+下划线） |',
+              '| `tag 指向的提交不在 master 上` | 在未合并分支打了 tag |',
+              '| `pubspec.yaml 是 X，tag 是 Y` | 版本号没跟着 tag 改 |',
+              '| `缺少 docs/release-notes-<tag>.md` | 发布说明没进 master |',
+              '| `签名指纹不一致` | secret 里的 keystore 不是那把 upload key |',
+              '| `preflight` FAIL | 插件注册表缺失 / 核心 .so 缺失（先看是不是漏了 `flutter pub get`） |',
+            ].join('\n');
+
+            const body = [
+              `**${dry ? '演练（dry_run）' : '发布'}失败**：\`${tag}\``,
+              '',
+              `运行记录：${runUrl}`,
+              `触发方式：${context.eventName}${dry ? '（dry_run）' : ''}`,
+              '',
+              '### 失败的 job',
+              failed,
+              '',
+              '### 常见原因',
+              hints,
+              '',
+              '_构建 artifact 已保留 90 天，可在运行页下载排查，不必重跑。_',
+              '_这条 issue 会在下一次同 tag 发布成功时自动关闭。_',
+            ].join('\n');
+
+            // label 不存在就建一个
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: 'release-failure' });
+            } catch {
+              await github.rest.issues.createLabel({
+                owner, repo, name: 'release-failure', color: 'B60205',
+                description: 'CD 发布失败（自动创建）',
+              });
+            }
+
+            const title = `[CD] ${dry ? '演练' : '发布'}失败：${tag}`;
+            const open = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', labels: 'release-failure', per_page: 50,
+            });
+            const hit = open.data.find(i => i.title === title);
+            if (hit) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: hit.number, body });
+              core.info(`已追加评论到 issue #${hit.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner, repo, title, body, labels: ['release-failure'],
+              });
+              core.info(`已创建 issue #${created.data.number}`);
+            }
+
+            await core.summary
+              .addHeading(`CD ${dry ? '演练' : '发布'}失败：${tag}`, 3)
+              .addRaw(failed, true)
+              .addLink('运行记录', runUrl)
+              .write();
