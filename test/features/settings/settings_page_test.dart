@@ -76,7 +76,7 @@ void main() {
     // 2026-11-13：外观模式与主题色合并成**一张卡片**（「界面外观」），副标题显示当前两项的值
     expect(find.text('界面外观'), findsOneWidget);
     expect(find.text('外观模式'), findsNothing, reason: '不再是独立入口卡片');
-    expect(find.text('浅色 · 琥珀 主题色'), findsOneWidget);
+    expect(find.text('浅色 · 琥珀'), findsOneWidget);
 
     await tester.tap(find.text('界面外观'));
     await tester.pumpAndSettle();
