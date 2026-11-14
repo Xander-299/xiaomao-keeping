@@ -105,6 +105,8 @@ const SYNC_ENTITIES = new Set([
   'category',
   'transaction',
   'budget',
+  // 设置项（P6.4b）：bookId / id 都是 'global' 哨兵值，payload 是白名单三键的 JSON。
+  'setting',
 ]);
 const MAX_SYNC_CHANGES = 200;
 const MAX_SYNC_BODY = 2 * 1024 * 1024;

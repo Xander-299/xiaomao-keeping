@@ -6,7 +6,11 @@
 /// 3. 从本机 cursor 起循环 pull，直到 `hasMore=false`；
 /// 4. 应用下行时 `dirty=0`（不制造第二条写库路径），本地较新的行跳过、等下次 push 赢。
 ///
-/// 明确不做（第一阶段）：自动触发、settings 同步、字段级合并。
+/// 第一阶段不做：自动触发、settings 同步、字段级合并。
+/// P6.4b 起：**自动触发**在 `sync_trigger.dart`（本类只管「跑一次」）；
+/// **设置同步**按 `entity=setting` 走同一条 push/pull；**字段级合并仍不做**。
+///
+/// 并发：`syncNow()` 是**单飞**的 —— 自动触发与页面按钮同时来，只会发一次请求。
 library;
 
 import 'dart:math' as math;
@@ -20,6 +24,8 @@ import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/providers/data_epoch.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/features/sync/application/auth_controller.dart';
+import 'package:yanxin/features/sync/application/settings_sync.dart';
+import 'package:yanxin/features/sync/application/sync_conflicts.dart';
 
 /// 一次同步的结果（页面展示用）。
 class SyncResult {
@@ -103,6 +109,8 @@ class SyncStatusController extends AsyncNotifier<SyncStatusState> {
           syncing: false,
         ),
       );
+      // 本轮可能新写了冲突存档（或恢复后变少）→ 让 /cloud-sync 那一行立刻准。
+      ref.invalidate(syncConflictCountProvider);
     } on Object catch (e) {
       state = AsyncData<SyncStatusState>(
         prev.copyWith(syncing: false, error: _describe(e)),
@@ -128,8 +136,25 @@ class SyncEngine {
 
   final Ref _ref;
 
+  /// 正在跑的那一次（单飞锁）。自动触发与页面按钮共用。
+  Future<SyncResult>? _inflight;
+
   /// 推本机 dirty 行 → 应用 conflicts → 从 cursor 拉取并应用。
-  Future<SyncResult> syncNow() async {
+  ///
+  /// **单飞**：已有一次在跑就直接返回它，不排队、不抛错 —— 自动触发与手动按钮
+  /// 撞在一起时，用户看到的应当是「一次同步」而不是两次。
+  Future<SyncResult> syncNow() {
+    final Future<SyncResult>? running = _inflight;
+    if (running != null) return running;
+    late final Future<SyncResult> future;
+    future = _runSync().whenComplete(() {
+      if (identical(_inflight, future)) _inflight = null;
+    });
+    _inflight = future;
+    return future;
+  }
+
+  Future<SyncResult> _runSync() async {
     final AuthState? auth = _ref.read(authControllerProvider).value;
     if (auth?.signedIn != true) {
       throw const SyncApiException('unauthorized', statusCode: 401);
@@ -159,15 +184,21 @@ class SyncEngine {
               changes: chunk,
             );
             pushed += res.applied;
+            // 冲突行里「应用失败」的那几条（唯一索引冲突等）**没有上云**，
+            // 绝不能清 dirty，否则本机会显示一个云端永远没有的版本、且不再重试
+            // （B1：本机与云端永久分叉，不自愈）。见 SPEC-P6.4b D3。
+            final Set<String> keptLocal = <String>{};
             for (final SyncChange serverRow in res.conflicts) {
               conflicts++;
               if (await _apply(db, serverRow)) {
                 pulled++;
               } else {
                 skipped++;
+                keptLocal.add(_changeKey(serverRow));
               }
             }
             for (final SyncChange change in chunk) {
+              if (keptLocal.contains(_changeKey(change))) continue;
               await _markClean(db, change);
             }
           }
@@ -288,10 +319,20 @@ class SyncEngine {
         ),
       );
     }
+
+    // 设置项（P6.4b D4）：白名单三键打包成一条 entity=setting 的变更。
+    final SyncChange? setting = await buildSettingsChange(
+      _ref.read(appMetaRepositoryProvider),
+    );
+    if (setting != null) out.add(setting);
+
     return out;
   }
 
   // ── 上行：推送成功把 dirty 置 0（updatedAt 变了就保持 dirty）─────────
+
+  /// 变更的唯一键：同一实体的同一 id（跨表同名 id 不算同一行）。
+  static String _changeKey(SyncChange change) => '${change.entity}/${change.id}';
 
   Future<void> _markClean(AppDatabase db, SyncChange change) async {
     switch (change.entity) {
@@ -325,6 +366,13 @@ class SyncEngine {
             ))
             .write(const BudgetsCompanion(dirty: Value(0)));
         break;
+      case kSettingsEntity:
+        // 设置没有表行，靠 KV 记「这个时间戳已经推上去过」。
+        await markSettingsSynced(
+          _ref.read(appMetaRepositoryProvider),
+          change.updatedAt,
+        );
+        break;
     }
   }
 
@@ -343,6 +391,13 @@ class SyncEngine {
           return await _applyTransaction(db, change);
         case 'budget':
           return await _applyBudget(db, change);
+        case kSettingsEntity:
+          final bool applied = await applySettingsChange(
+            _ref.read(appMetaRepositoryProvider),
+            change,
+          );
+          if (applied) invalidateSettingsProviders(_ref);
+          return applied;
         default:
           return false;
       }
@@ -357,6 +412,19 @@ class SyncEngine {
       db.books,
     )..where((t) => t.id.equals(change.id))).getSingleOrNull();
     if (existing != null && existing.updatedAt > change.updatedAt) return false;
+    // 覆盖一份「本机有未同步改动」的行 = 用户会丢失一份编辑：留档（P6.4b D2）。
+    if (existing != null && existing.dirty == 1) {
+      await archiveConflict(
+        db,
+        entity: 'book',
+        bookId: change.bookId,
+        entityId: change.id,
+        localUpdatedAt: existing.updatedAt,
+        localPayload: existing.toJson(),
+        serverUpdatedAt: change.updatedAt,
+        serverPayload: change.payload,
+      );
+    }
     if (change.deleted) {
       if (existing == null) return false;
       await (db.update(
@@ -384,6 +452,19 @@ class SyncEngine {
       db.accounts,
     )..where((t) => t.id.equals(change.id))).getSingleOrNull();
     if (existing != null && existing.updatedAt > change.updatedAt) return false;
+    // 覆盖一份「本机有未同步改动」的行 = 用户会丢失一份编辑：留档（P6.4b D2）。
+    if (existing != null && existing.dirty == 1) {
+      await archiveConflict(
+        db,
+        entity: 'account',
+        bookId: change.bookId,
+        entityId: change.id,
+        localUpdatedAt: existing.updatedAt,
+        localPayload: existing.toJson(),
+        serverUpdatedAt: change.updatedAt,
+        serverPayload: change.payload,
+      );
+    }
     if (change.deleted) {
       if (existing == null) return false;
       await (db.update(
@@ -411,6 +492,19 @@ class SyncEngine {
       db.categories,
     )..where((t) => t.id.equals(change.id))).getSingleOrNull();
     if (existing != null && existing.updatedAt > change.updatedAt) return false;
+    // 覆盖一份「本机有未同步改动」的行 = 用户会丢失一份编辑：留档（P6.4b D2）。
+    if (existing != null && existing.dirty == 1) {
+      await archiveConflict(
+        db,
+        entity: 'category',
+        bookId: change.bookId,
+        entityId: change.id,
+        localUpdatedAt: existing.updatedAt,
+        localPayload: existing.toJson(),
+        serverUpdatedAt: change.updatedAt,
+        serverPayload: change.payload,
+      );
+    }
     if (change.deleted) {
       if (existing == null) return false;
       await (db.update(
@@ -438,6 +532,19 @@ class SyncEngine {
       db.transactions,
     )..where((t) => t.id.equals(change.id))).getSingleOrNull();
     if (existing != null && existing.updatedAt > change.updatedAt) return false;
+    // 覆盖一份「本机有未同步改动」的行 = 用户会丢失一份编辑：留档（P6.4b D2）。
+    if (existing != null && existing.dirty == 1) {
+      await archiveConflict(
+        db,
+        entity: 'transaction',
+        bookId: change.bookId,
+        entityId: change.id,
+        localUpdatedAt: existing.updatedAt,
+        localPayload: existing.toJson(),
+        serverUpdatedAt: change.updatedAt,
+        serverPayload: change.payload,
+      );
+    }
     if (change.deleted) {
       if (existing == null) return false;
       await (db.update(
@@ -465,6 +572,19 @@ class SyncEngine {
       db.budgets,
     )..where((t) => t.id.equals(change.id))).getSingleOrNull();
     if (existing != null && existing.updatedAt > change.updatedAt) return false;
+    // 覆盖一份「本机有未同步改动」的行 = 用户会丢失一份编辑：留档（P6.4b D2）。
+    if (existing != null && existing.dirty == 1) {
+      await archiveConflict(
+        db,
+        entity: 'budget',
+        bookId: change.bookId,
+        entityId: change.id,
+        localUpdatedAt: existing.updatedAt,
+        localPayload: existing.toJson(),
+        serverUpdatedAt: change.updatedAt,
+        serverPayload: change.payload,
+      );
+    }
     if (change.deleted) {
       if (existing == null) return false;
       await (db.update(

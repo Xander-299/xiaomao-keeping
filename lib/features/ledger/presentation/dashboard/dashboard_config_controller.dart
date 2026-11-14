@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:yanxin/core/providers/settings_dirty.dart';
 import 'package:yanxin/data/providers/database.dart';
 
 import 'dashboard_config.dart';
@@ -45,9 +46,10 @@ class DashboardConfigController extends AsyncNotifier<DashboardConfig> {
     final DashboardConfig next = DashboardRegistry.sanitize(config);
     state = AsyncData<DashboardConfig>(next);
     try {
-      await ref
-          .read(appMetaRepositoryProvider)
-          .set(kDashboardConfigKey, jsonEncode(next.toJson()));
+      final meta = ref.read(appMetaRepositoryProvider);
+      await meta.set(kDashboardConfigKey, jsonEncode(next.toJson()));
+      // 让云同步知道「设置有改动」（P6.4b D4）；失败静默。
+      await markSettingsDirty(meta);
     } catch (_) {
       // 静默：首页布局不阻断记账
     }
@@ -56,7 +58,10 @@ class DashboardConfigController extends AsyncNotifier<DashboardConfig> {
   Future<void> reset() async {
     state = const AsyncData<DashboardConfig>(DashboardConfig.defaults);
     try {
-      await ref.read(appMetaRepositoryProvider).remove(kDashboardConfigKey);
+      final meta = ref.read(appMetaRepositoryProvider);
+      await meta.remove(kDashboardConfigKey);
+      // 恢复默认同样是「改动」：远端要能看到布局回到默认。
+      await markSettingsDirty(meta);
     } catch (_) {
       // 静默
     }

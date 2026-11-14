@@ -8,13 +8,11 @@
 
          现在云同步 / 云备份要联网，所以：
           - `INTERNET` 保留（声明在 `src/main/AndroidManifest.xml`）；
-          - `ACCESS_NETWORK_STATE` 仍然移除 —— 第一版不做「断网自动暂停」，同步失败一律按
-            指数退避重试处理，不需要读网络状态（少一个权限少一份解释成本）。
+          - **P6.4b（2026-11-14）起 `ACCESS_NETWORK_STATE` 不再移除**：自动同步只在 WiFi 下跑，
+            判定「是不是 WiFi」只能靠 `ConnectivityManager`。这条权限是 normal 级、
+            不弹授权框，且**只用于判断网络类型**，不采集/不上报任何网络信息。
 
          ⚠️ 网络能力的边界不再靠「没有权限」，而是靠这两条：
           1. `res/xml/network_security_config.xml` 全局禁明文（连 http:// 都发不出去）；
           2. Dart 侧 `CloudSyncGate` —— 未登录时连 socket 都不建（P6.2 落地）。 -->
-    <uses-permission
-        android:name="android.permission.ACCESS_NETWORK_STATE"
-        tools:node="remove" />
 </manifest>

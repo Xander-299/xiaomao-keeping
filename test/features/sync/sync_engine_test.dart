@@ -255,4 +255,168 @@ void main() {
     expect(row?.deletedAt, 9000);
     expect(row?.dirty, 0);
   });
+
+  // ── B1：冲突且应用失败的行不得被清 dirty（SPEC-P6.4b D3）──────────────
+
+  test('冲突行应用失败 → 保持 dirty（否则本机与云端永久分叉）', () async {
+    final h = await _harness(<SyncResponse>[
+      _json(200, <String, Object?>{
+        'applied': 0,
+        'conflicts': <Object?>[],
+        'cursor': 1,
+      }),
+    ]);
+    final Book book = await BookRepository(h.db).ensureDefaultBook();
+    final Account account = await AccountRepository(
+      h.db,
+    ).create(bookId: book.id, name: '本机现金');
+
+    // 把 push 的响应换成「这一行被服务端判为冲突，且 payload 坏到应用不了」
+    // （_apply 会抛异常 → skipped）—— 这一行并没有真正上云。
+    h.transport.responses.clear();
+    h.transport.responses.addAll(<SyncResponse>[
+      _json(200, <String, Object?>{
+        'applied': 0,
+        'conflicts': <Object?>[
+          <String, Object?>{
+            'bookId': book.id,
+            'entity': 'account',
+            'id': account.id,
+            'updatedAt': account.updatedAt + 1000,
+            'deleted': false,
+            'payload': <String, Object?>{}, // 缺 name 等必填 → fromJson 抛错
+          },
+        ],
+        'cursor': 2,
+      }),
+      _json(200, <String, Object?>{
+        'changes': <Object?>[],
+        'cursor': 2,
+        'hasMore': false,
+      }),
+    ]);
+
+    final SyncResult result = await h.container.read(syncEngineProvider).syncNow();
+
+    final Account? after = await (h.db.select(
+      h.db.accounts,
+    )..where((t) => t.id.equals(account.id))).getSingleOrNull();
+    expect(result.skipped, greaterThanOrEqualTo(1));
+    expect(after?.dirty, 1, reason: '没上云就不能清 dirty');
+    expect(after?.name, '本机现金', reason: '应用失败时本地值不能被改掉');
+  });
+
+  test('保持 dirty 的行下一轮仍会重推', () async {
+    final h = await _harness(<SyncResponse>[
+      _json(200, <String, Object?>{
+        'applied': 0,
+        'conflicts': <Object?>[
+          // 占位，下面替换
+        ],
+        'cursor': 1,
+      }),
+    ]);
+    final Book book = await BookRepository(h.db).ensureDefaultBook();
+    final Account account = await AccountRepository(
+      h.db,
+    ).create(bookId: book.id, name: '本机现金');
+
+    h.transport.responses.clear();
+    h.transport.responses.addAll(<SyncResponse>[
+      _json(200, <String, Object?>{
+        'applied': 0,
+        'conflicts': <Object?>[
+          <String, Object?>{
+            'bookId': book.id,
+            'entity': 'account',
+            'id': account.id,
+            'updatedAt': account.updatedAt + 1000,
+            'deleted': false,
+            'payload': <String, Object?>{},
+          },
+        ],
+        'cursor': 2,
+      }),
+      _json(200, <String, Object?>{
+        'changes': <Object?>[],
+        'cursor': 2,
+        'hasMore': false,
+      }),
+      // 第二轮：这次服务端收下
+      _json(200, <String, Object?>{
+        'applied': 1,
+        'conflicts': <Object?>[],
+        'cursor': 3,
+      }),
+      _json(200, <String, Object?>{
+        'changes': <Object?>[],
+        'cursor': 3,
+        'hasMore': false,
+      }),
+    ]);
+
+    await h.container.read(syncEngineProvider).syncNow();
+    await h.container.read(syncEngineProvider).syncNow();
+
+    // 第二个 push 请求体里必须还有这条账本行
+    final List<SyncRequest> pushes = h.transport.requests
+        .where((SyncRequest r) => r.uri.path == '/v1/sync/push')
+        .toList();
+    expect(pushes.length, 2);
+    expect(pushes[1].body, contains(account.id));
+
+    final Account? after = await (h.db.select(
+      h.db.accounts,
+    )..where((t) => t.id.equals(account.id))).getSingleOrNull();
+    expect(after?.dirty, 0, reason: '第二轮被接收后才清 dirty');
+  });
+
+  test('对照组：能正常应用的冲突行 → dirty=0', () async {
+    final h = await _harness(<SyncResponse>[
+      _json(200, <String, Object?>{
+        'applied': 0,
+        'conflicts': <Object?>[],
+        'cursor': 1,
+      }),
+    ]);
+    final Book book = await BookRepository(h.db).ensureDefaultBook();
+    final Account account = await AccountRepository(
+      h.db,
+    ).create(bookId: book.id, name: '本机现金');
+
+    h.transport.responses.clear();
+    h.transport.responses.addAll(<SyncResponse>[
+      _json(200, <String, Object?>{
+        'applied': 0,
+        'conflicts': <Object?>[
+          <String, Object?>{
+            'bookId': book.id,
+            'entity': 'account',
+            'id': account.id,
+            'updatedAt': account.updatedAt + 1000,
+            'deleted': false,
+            'payload': _accountPayload(
+              account,
+              name: '云端改名',
+              updatedAt: account.updatedAt + 1000,
+            ),
+          },
+        ],
+        'cursor': 2,
+      }),
+      _json(200, <String, Object?>{
+        'changes': <Object?>[],
+        'cursor': 2,
+        'hasMore': false,
+      }),
+    ]);
+
+    await h.container.read(syncEngineProvider).syncNow();
+
+    final Account? after = await (h.db.select(
+      h.db.accounts,
+    )..where((t) => t.id.equals(account.id))).getSingleOrNull();
+    expect(after?.name, '云端改名');
+    expect(after?.dirty, 0);
+  });
 }
