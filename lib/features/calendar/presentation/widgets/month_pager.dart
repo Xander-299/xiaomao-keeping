@@ -174,8 +174,10 @@ class _MonthPagerState extends State<MonthPager>
           onHorizontalDragUpdate: _onDragUpdate,
           onHorizontalDragEnd: _onDragEnd,
           onHorizontalDragCancel: () {
-            _dir = 0;
-            _c.value = 0;
+            // 手势被别的东西抢走（比如系统返回）：平滑回位，别瞬跳
+            _settleTo(0, _cancelDuration).then((bool done) {
+              if (done && mounted) _dir = 0;
+            });
           },
           child: AnimatedBuilder(
             animation: _c,
