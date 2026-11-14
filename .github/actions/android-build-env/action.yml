@@ -1,0 +1,40 @@
+name: Android build env
+description: JDK 17 + Gradle + Android SDK 36/CMake + runner-friendly Gradle heap.
+
+# 只放「构建 APK 需要」的环境；Flutter / pub get 由 flutter-env 负责。
+# 这样 CI 的 build / release 与 CD 的 build 共用同一套环境，版本只在这里出现一次。
+runs:
+  using: composite
+  steps:
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    # Gradle 缓存（依赖 + wrapper）。⚠️ 不要设 cache-read-only：
+    # 本仓库 master 受保护、只能走 PR，PR 是唯一会跑 CI 的地方 ——
+    # 设成 read-only 就永远没人写缓存，每次都是冷启动（2026-10-29 实测踩到）。
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    # runner 的 Android SDK 不一定带 compileSdk=36（项目 android.builder.sdkDownload=false，
+    # 缺了就直截失败）。补装一次；已装则秒过。
+    # ⚠️ cmake 必须装：jni_flutter 会拉起 :jni 走 CMake，缺 3.22.1 时报
+    #    `[CXX1300] CMake '3.22.1' was not found in SDK`（2026-10-29 首次 CI 实测）。
+    - name: Ensure Android SDK 36 + CMake
+      shell: bash
+      run: |
+        SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        if [ -x "$SDKMANAGER" ]; then
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" > /dev/null
+        else
+          echo "::warning::找不到 sdkmanager，跳过补装（依赖 runner 预装）"
+        fi
+
+    # 仓库里写的是 -Xmx8G；GitHub runner 只有 ~7 GB，8G 堆会让 Gradle 守护进程起不来。
+    # 与本地出包前的手工降配同源（HANDOFF「内存不足」那条）。
+    - name: Lower Gradle heap for runner
+      shell: bash
+      run: sed -i 's/-Xmx8G -XX:MaxMetaspaceSize=4G/-Xmx3G -XX:MaxMetaspaceSize=1G/' android/gradle.properties

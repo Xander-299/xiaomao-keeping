@@ -43,12 +43,6 @@ permissions:
   contents: read
   actions: write
 
-env:
-  # ⚠️ pubspec.lock 里 116 个包的 url 都是 https://pub.flutter-io.cn（作者在国内开发，
-  #    env.sh 也设了这个镜像）。CI 必须设成同一个 host，否则 pub 会判定 lock 失效、
-  #    重新求解版本 —— 那样 CI 跑过的版本和提交进仓库的版本可能不是同一套。
-  PUB_HOSTED_URL: https://pub.flutter-io.cn
-
 jobs:
   static:
     name: analyze · 生成物同步
@@ -58,15 +52,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.2'
-          channel: stable
-          cache: true
-
-      - name: Resolve dependencies
-        run: flutter pub get
+      - name: Set up Flutter env
+        uses: ./.github/actions/flutter-env
 
       - name: Regenerate drift code
         run: dart run build_runner build --delete-conflicting-outputs
@@ -92,15 +79,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.2'
-          channel: stable
-          cache: true
-
-      - name: Resolve dependencies
-        run: flutter pub get
+      - name: Set up Flutter env
+        uses: ./.github/actions/flutter-env
 
       # 本机跑必须 --concurrency=1（内存不足会让 Dart VM OOM）；runner 上默认并发即可。
       - name: Test
@@ -114,47 +94,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      - name: Set up Flutter env
+        uses: ./.github/actions/flutter-env
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.2'
-          channel: stable
-          cache: true
-
-      # Gradle 缓存（依赖 + wrapper）。⚠️ **不要**设 cache-read-only：
-      # 本仓库 master 被保护成「只能走 PR」，PR 就是唯一会跑 CI 的地方 ——
-      # 设成 read-only 就永远没人写缓存，每次都是冷启动（2026-10-29 实测踩到）。
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Resolve dependencies
-        run: flutter pub get
-
-      # runner 的 Android SDK 不一定带 compileSdk=36（项目 android.builder.sdkDownload=false，
-      # 缺了就直截失败）。这里补装一次；已经装了就是秒过。
-      # ⚠️ cmake 必须装：`jni_flutter` 那条链会拉起 `:jni` 模块走 CMake 构建，
-      #    缺 CMake 3.22.1 时首个真实失败发生在 `:jni:configureCMakeDebug[arm64-v8a]`，
-      #    报 `[CXX1300] CMake '3.22.1' was not found in SDK`（2026-10-29 首次 CI 实测）。
-      - name: Ensure Android SDK 36 + CMake
-        run: |
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ -x "$SDKMANAGER" ]; then
-            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-            "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" > /dev/null
-          else
-            echo "::warning::找不到 sdkmanager，跳过补装（依赖 runner 预装）"
-          fi
-
-      # 仓库里写的是 -Xmx8G；GitHub 私有仓库 runner 只有 ~7 GB 内存，8G 堆会让
-      # Gradle 守护进程起不来。与本地出包前的手工降配同源（HANDOFF「内存不足」那条）。
-      - name: Lower Gradle heap for runner
-        run: sed -i 's/-Xmx8G -XX:MaxMetaspaceSize=4G/-Xmx3G -XX:MaxMetaspaceSize=1G/' android/gradle.properties
+      - name: Set up Android build env
+        uses: ./.github/actions/android-build-env
 
       # --no-pub：防止 flutter build 隐式跑 pub get 把 pubspec.lock 里的版本升上去
       # 只打 arm64：release 本来就只有 ARM，x86_64 只是给模拟器用（本机装包时再验），
@@ -170,41 +114,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      - name: Set up Flutter env
+        uses: ./.github/actions/flutter-env
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.2'
-          channel: stable
-          cache: true
+      - name: Set up Android build env
+        uses: ./.github/actions/android-build-env
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      # flutter-env 已经跑过 pub get；这里用 --no-pub 避免同一 job 内再跑一次。
+      # 白屏根因是「缺 .flutter-plugins-dependencies」，所以单独断言它在。
+      - name: Verify plugin registry
+        run: test -s .flutter-plugins-dependencies
 
-      - name: Resolve dependencies
-        run: flutter pub get
-
-      - name: Ensure Android SDK 36 + CMake
-        run: |
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ -x "$SDKMANAGER" ]; then
-            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-            "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" > /dev/null
-          else
-            echo "::warning::找不到 sdkmanager，跳过补装（依赖 runner 预装）"
-          fi
-
-      - name: Lower Gradle heap for runner
-        run: sed -i 's/-Xmx8G -XX:MaxMetaspaceSize=4G/-Xmx3G -XX:MaxMetaspaceSize=1G/' android/gradle.properties
-
-      # 这里**故意不写 --no-pub**：本 job 要验证的正是「pub get 之后出包、插件清单在」。
       - name: Build release APK (arm64)
-        run: flutter build apk --release --target-platform android-arm64
+        run: flutter build apk --release --no-pub --target-platform android-arm64
 
       # CI 没有 keystore（key.properties 不入库），release 会退化成 debug 签名，
       # 所以跳过指纹比对；本地出正式包时不要加 --skip-signature。

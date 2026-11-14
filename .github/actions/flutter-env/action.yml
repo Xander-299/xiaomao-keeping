@@ -1,0 +1,28 @@
+name: Flutter env
+description: Set up Flutter 3.47.2 (cached) and resolve pub dependencies.
+
+# 单一版本源：Flutter 版本只在这里出现一次。
+# 想升级 Flutter：改这里的 default，并同步 pubspec.lock / 本地文档。
+inputs:
+  flutter-version:
+    description: Flutter SDK version
+    required: false
+    default: '3.47.2'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ inputs.flutter-version }}
+        channel: stable
+        cache: true
+
+    # ⚠️ pubspec.lock 里的包 URL 都是 pub.flutter-io.cn；必须用同一个 host，
+    # 否则 pub 会判定 lock 失效、重新求解版本，CI 跑的和提交的可能不是同一套。
+    - name: Resolve dependencies
+      shell: bash
+      env:
+        PUB_HOSTED_URL: https://pub.flutter-io.cn
+      run: flutter pub get
