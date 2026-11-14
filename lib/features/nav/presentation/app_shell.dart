@@ -12,6 +12,7 @@ import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/features/autobook/application/auto_book_controller.dart';
 import 'package:yanxin/features/ledger/presentation/widgets/book_drawer.dart';
 import 'package:yanxin/features/onboarding/application/onboarding_prompt.dart';
+import 'package:yanxin/features/sync/application/sync_trigger.dart';
 
 /// 导航壳：持有抽屉（账本列表）+ 底栏。
 ///
@@ -21,6 +22,10 @@ import 'package:yanxin/features/onboarding/application/onboarding_prompt.dart';
 /// F7.15 起兼任**自动记账队列的消费触发点**：首帧后 + 每次 `resumed` 各 drain 一次
 /// （Kotlin 侧只落盘，入账必须回到 Dart —— drift 是唯一 DB writer）。
 /// drain **失败静默**：它是锦上添花，绝不能阻断冷启动或前台切换。
+///
+/// P6.4b 起再加**自动同步**的触发点：首帧后一次（冷启动）+ 每次 `resumed` 一次。
+/// 是否真的跑由 `SyncTrigger` 判定（5 分钟节流 / 仅 WiFi / 闸门），这里只负责「叫一声」；
+/// 它同样静默失败，且**不阻塞首帧**。
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key, required this.navigationShell});
 
@@ -54,12 +59,36 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_drainAutoBook());
+      unawaited(_autoSync('回前台'));
     }
   }
 
   Future<void> _onFirstFrame() async {
     await _maybeShowOnboarding();
     await _drainAutoBook();
+    // 冷启动：先同步增量，再看要不要补一份全量备份（都静默、都不阻塞）
+    await _autoSync('冷启动');
+    unawaited(_autoBackup());
+  }
+
+  /// 自动同步（P6.4b）：是否真的跑交给 [SyncTrigger] 判定；异常一律吞掉。
+  Future<void> _autoSync(String reason) async {
+    if (!mounted) return;
+    try {
+      await ref.read(syncTriggerProvider).maybeSync(reason: reason);
+    } catch (_) {
+      // 自动同步失败绝不冒泡到 UI
+    }
+  }
+
+  /// 自动备份（P6.4b D5）：只在冷启动调用。
+  Future<void> _autoBackup() async {
+    if (!mounted) return;
+    try {
+      await ref.read(syncTriggerProvider).maybeAutoBackup();
+    } catch (_) {
+      // 同上
+    }
   }
 
   /// 消费自动记账队列（幂等 + 静默失败）。

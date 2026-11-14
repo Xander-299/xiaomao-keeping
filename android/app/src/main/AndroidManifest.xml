@@ -10,6 +10,10 @@
     <!-- F7.15 自动记账：回执通知（Android 13+ 运行时权限，用户主动开启时才申请）。
          通知监听不需要在这里声明权限 —— 它是 <service> 的 android:permission 属性。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- P6.4b（2026-11-14）：自动同步只在 WiFi 下跑，需要读当前网络类型。
+         属 normal 权限（安装即授予、不弹授权框）；它**只用来判断「是不是 WiFi」**，
+         不采集任何网络信息、不上报。见 SPEC-P6.4b D6 与 HANDOFF 不变量 #8 的新口径。 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- F7.16：开机后重新排期补抓守护（Android 要求显式声明才能收 BOOT_COMPLETED）。
          属 normal 权限，安装即授予，用户无需任何额外操作。 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

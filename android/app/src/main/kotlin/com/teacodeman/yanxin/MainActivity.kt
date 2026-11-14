@@ -4,6 +4,7 @@ import android.content.Intent
 import com.teacodeman.yanxin.autobook.AutoBookChannel
 import com.teacodeman.yanxin.autobook.AutoBookNotifier
 import com.teacodeman.yanxin.autobook.AutoBookQueue
+import com.teacodeman.yanxin.network.NetworkChannel
 import com.teacodeman.yanxin.ocr.OcrChannel
 import com.teacodeman.yanxin.secure.SecureStoreChannel
 import io.flutter.embedding.android.FlutterActivity
@@ -27,6 +28,7 @@ class MainActivity : FlutterActivity() {
     private var autoBookChannel: AutoBookChannel? = null
     private var ocrChannel: OcrChannel? = null
     private var secureStoreChannel: SecureStoreChannel? = null
+    private var networkChannel: NetworkChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -43,6 +45,11 @@ class MainActivity : FlutterActivity() {
         val secure = SecureStoreChannel(this)
         secure.attach(flutterEngine.dartExecutor.binaryMessenger)
         secureStoreChannel = secure
+
+        // 网络类型（P6.4b）：自动同步只在 WiFi 下跑，Dart 侧只能问系统
+        val network = NetworkChannel(this)
+        network.attach(flutterEngine.dartExecutor.binaryMessenger)
+        networkChannel = network
 
         // 冷启动带进来的 intent（分享 / 通知按钮）在这里处理 —— 通道已就绪
         handleAutoBookIntent(intent)
@@ -61,6 +68,8 @@ class MainActivity : FlutterActivity() {
         ocrChannel = null
         secureStoreChannel?.detach()
         secureStoreChannel = null
+        networkChannel?.detach()
+        networkChannel = null
         super.onDestroy()
     }
 

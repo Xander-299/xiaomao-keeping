@@ -18,18 +18,27 @@ import 'schema_v1.dart';
 import 'schema_v2.dart';
 import 'schema_v4.dart';
 import 'schema_v5.dart';
+import 'schema_v6.dart';
 import 'tables.dart';
 
 part 'database.g.dart';
 
 @DriftDatabase(
-  tables: [SchemaMeta, Books, Accounts, Categories, Transactions, Budgets],
+  tables: [
+    SchemaMeta,
+    Books,
+    Accounts,
+    Categories,
+    Transactions,
+    Budgets,
+    SyncConflicts,
+  ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -48,6 +57,10 @@ class AppDatabase extends _$AppDatabase {
           }
           // v5 替换 v1 的全局指纹索引；新库也走同一份 DDL，保证「新建 = 升级后」。
           for (final sql in kSchemaV5Indexes) {
+            await customStatement(sql);
+          }
+          // v6：冲突存档表由 createAll 建好，只差索引。
+          for (final sql in kSchemaV6Indexes) {
             await customStatement(sql);
           }
         },
@@ -87,6 +100,13 @@ class AppDatabase extends _$AppDatabase {
             // v5：只替换索引，不重建表、不改既有行。
             // 旧库的 idx_tx_fingerprint 是全局唯一；先 DROP 再按 (book_id, fingerprint) 建。
             for (final sql in kSchemaV5Indexes) {
+              await customStatement(sql);
+            }
+          }
+          if (from < 6) {
+            // v6：只加表 + 索引（P6.4b D2）。历史冲突无法回溯，新表从空开始。
+            await m.createTable(syncConflicts);
+            for (final sql in kSchemaV6Indexes) {
               await customStatement(sql);
             }
           }

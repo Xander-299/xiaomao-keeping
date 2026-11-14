@@ -218,3 +218,40 @@ class Transactions extends Table {
   @override
   List<String> get customConstraints => ['CHECK (amount_cents > 0)'];
 }
+
+/// 同步冲突存档（schema **v6**，P6.4b D2）。
+///
+/// 每次「本机有未同步改动、却被云端那一份覆盖」时写一行：两份 payload 都留着，
+/// 用户在 `/cloud-sync → 冲突详情` 能看到「本机 / 云端」两份值，并能把本机那份恢复回去。
+///
+/// 为什么它没有 `dirty/updated_at` 这套同步元数据：**这张表只在本机**，
+/// 永远不上云（失败的那份值本身就不该被同步出去）。清理规则见
+/// `features/sync/application/sync_conflicts.dart`（保留最近 50 条、处理完即删）。
+@DataClassName('SyncConflictEntry')
+class SyncConflicts extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  /// book/account/category/transaction/budget/setting
+  TextColumn get entity => text()();
+
+  /// 被覆盖那一行在本机的 id。
+  TextColumn get entityId => text()();
+
+  /// 账本 id（设置项为 `global`）。
+  TextColumn get bookId => text()();
+
+  IntColumn get localUpdatedAt => integer()();
+
+  IntColumn get serverUpdatedAt => integer()();
+
+  /// 被覆盖前本机那一行的 JSON（[entity] 对应的 `toJson()`）。
+  TextColumn get localPayload => text()();
+
+  /// 覆盖它的云端那一行的 JSON。
+  TextColumn get serverPayload => text()();
+
+  IntColumn get createdAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}

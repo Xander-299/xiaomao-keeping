@@ -23,7 +23,9 @@ import 'package:yanxin/features/ledger/presentation/dashboard/dashboard_config_c
 import 'package:yanxin/features/settings/application/theme_controller.dart';
 import 'package:yanxin/features/stats/application/stats_controller.dart';
 import 'package:yanxin/features/sync/application/auth_controller.dart';
+import 'package:yanxin/features/sync/application/sync_conflicts.dart';
 import 'package:yanxin/features/sync/application/sync_engine.dart';
+import 'package:yanxin/features/sync/presentation/conflicts_page.dart';
 
 /// 云端最新备份（未登录 / 开关关闭时不发请求，返回 null）。
 final cloudBackupInfoProvider = FutureProvider<BackupInfo?>((Ref ref) async {
@@ -284,7 +286,8 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
         _toast(error);
       } else if (state?.last != null) {
         final SyncResult r = state!.last!;
-        _toast('同步完成：上行 ${r.pushed} / 下行 ${r.pulled}');
+        final String extra = r.conflicts > 0 ? ' · 冲突 ${r.conflicts}' : '';
+        _toast('同步完成：上行 ${r.pushed} / 下行 ${r.pulled}$extra');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -409,6 +412,8 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
     final AsyncValue<BackupInfo?> backup = ref.watch(cloudBackupInfoProvider);
     final SyncStatusState sync =
         ref.watch(syncStatusProvider).value ?? const SyncStatusState();
+    // 本机被云端覆盖的行数（只在 >0 时出现在同步行下面）。
+    final int conflicts = ref.watch(syncConflictCountProvider).value ?? 0;
     final bool hasBackup = backup.value != null;
 
     return <Widget>[
@@ -510,6 +515,26 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(_syncText(sync), style: _statusStyle(p)),
+                    if (conflicts > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: InkWell(
+                          key: const ValueKey<String>('cloudSyncConflicts'),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const SyncConflictsPage(),
+                            ),
+                          ),
+                          child: Text(
+                            '$conflicts 条被云端覆盖 ›',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                              color: p.brandInk,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),

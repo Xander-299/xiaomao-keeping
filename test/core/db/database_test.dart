@@ -39,6 +39,7 @@ void main() {
           'transactions',
           'schema_meta',
           'budgets', // v2 新增
+          'sync_conflicts', // v6 新增（P6.4b 冲突存档）
         ]),
       );
     });
@@ -99,9 +100,9 @@ void main() {
       await insert('g4', 1); // 已删的可以有任意多条
     });
 
-    test('schemaVersion 落库为 5（PRAGMA user_version）', () async {
+    test('schemaVersion 落库为 6（PRAGMA user_version）', () async {
       final row = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(row.read<int>('user_version'), 5);
+      expect(row.read<int>('user_version'), 6);
     });
 
     test('建表/建索引 DDL 幂等：重复执行不报错且版本不变', () async {
@@ -113,7 +114,7 @@ void main() {
         await db.customStatement(sql);
       }
       final row = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(row.read<int>('user_version'), 5);
+      expect(row.read<int>('user_version'), 6);
     });
 
     test('指纹部分唯一索引：同账本重复冲突，跨账本允许', () async {
@@ -218,7 +219,7 @@ void main() {
       expect(await _objects(v2, 'index'), contains('idx_budget_book_period'));
       final int after = (await v2.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version');
-      expect(after, 5); // 一次走完 1→2→3→4→5 四条迁移
+      expect(after, 6); // 一次走完 1→2→3→4→5→6 五条迁移
 
       // 老数据仍在
       final book = await v2
@@ -268,13 +269,13 @@ void main() {
       await v2.customStatement('PRAGMA user_version = 2');
       await v2.close();
 
-      // 用「新版本代码」打开同一个库 → 走 onUpgrade(from 2, to 5)
+      // 用「新版本代码」打开同一个库 → 走 onUpgrade(from 2, to 6)
       final AppDatabase v3 = AppDatabase(NativeDatabase.opened(raw));
       addTearDown(v3.close);
 
       final int after = (await v3.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version');
-      expect(after, 5);
+      expect(after, 6);
 
       // 既有行数据不丢，且新列落默认空串（= 跟随类型）
       final row = await v3
@@ -330,7 +331,7 @@ void main() {
 
       final int after = (await v5.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version');
-      expect(after, 5);
+      expect(after, 6);
 
       final index = await v5
           .customSelect(

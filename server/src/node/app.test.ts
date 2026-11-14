@@ -315,3 +315,55 @@ test('同步：非法 entity → 400', async () => {
   const r = await pushChanges(accessToken, [change({ entity: 'evil' })]);
   assert.equal(r.status, 400);
 });
+
+// ── P6.4b 设置同步（entity=setting）─────────────────────────────────
+
+function settingChange(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    entity: 'setting',
+    bookId: 'global',
+    id: 'global',
+    updatedAt: 1000,
+    deleted: false,
+    payload: { theme_mode: 'dark', theme_seed: 'moss' },
+    ...overrides,
+  };
+}
+
+test('设置同步：entity=setting 可 push 并 pull（bookId/id 为 global）', async () => {
+  const { accessToken } = await login('sync-set-a@example.com');
+  const pushed = await pushChanges(accessToken, [settingChange()]);
+  assert.equal(pushed.status, 200);
+  assert.equal(pushed.body.applied, 1);
+
+  const pulled = await pullChanges(accessToken, 0);
+  const row = pulled.body.changes.find((c: any) => c.entity === 'setting');
+  assert.ok(row);
+  assert.equal(row.bookId, 'global');
+  assert.equal(row.payload.theme_mode, 'dark');
+});
+
+test('设置同步：与同 id 的账本行互不覆盖（entity 参与唯一键）', async () => {
+  const { accessToken } = await login('sync-set-b@example.com');
+  await pushChanges(accessToken, [
+    {
+      entity: 'book',
+      bookId: 'global',
+      id: 'global',
+      updatedAt: 1000,
+      deleted: false,
+      payload: { id: 'global', name: '账本' },
+    },
+    settingChange({ updatedAt: 2000 }),
+  ]);
+  const pulled = await pullChanges(accessToken, 0);
+  const entities = pulled.body.changes.map((c: any) => c.entity).sort();
+  assert.deepEqual(entities, ['book', 'setting']);
+});
+
+test('设置同步：payload 超过 64 KB → 400', async () => {
+  const { accessToken } = await login('sync-set-c@example.com');
+  const big = { blob: 'x'.repeat(70 * 1024) };
+  const r = await pushChanges(accessToken, [settingChange({ payload: big })]);
+  assert.equal(r.status, 400);
+});

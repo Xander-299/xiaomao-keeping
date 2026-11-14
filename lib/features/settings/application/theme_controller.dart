@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:yanxin/core/providers/settings_dirty.dart';
 import 'package:yanxin/core/theme/theme_mode.dart';
 import 'package:yanxin/core/theme/theme_seed.dart';
 import 'package:yanxin/data/providers/database.dart';
@@ -42,9 +43,10 @@ class ThemeSeedController extends AsyncNotifier<ToonSeed> {
   Future<void> select(ToonSeed seed) async {
     state = AsyncData<ToonSeed>(seed);
     try {
-      await ref
-          .read(appMetaRepositoryProvider)
-          .set(kThemeSeedKey, seed.storageValue);
+      final meta = ref.read(appMetaRepositoryProvider);
+      await meta.set(kThemeSeedKey, seed.storageValue);
+      // 让云同步知道「设置有改动」（P6.4b D4）；失败静默。
+      await markSettingsDirty(meta);
     } catch (_) {
       // 静默：外观是低风险偏好，别打断用户
     }
@@ -72,9 +74,10 @@ class ThemeModeController extends AsyncNotifier<ToonThemeMode> {
   Future<void> select(ToonThemeMode mode) async {
     state = AsyncData<ToonThemeMode>(mode);
     try {
-      await ref
-          .read(appMetaRepositoryProvider)
-          .set(kThemeModeKey, mode.storageValue);
+      final meta = ref.read(appMetaRepositoryProvider);
+      await meta.set(kThemeModeKey, mode.storageValue);
+      // 让云同步知道「设置有改动」（P6.4b D4）；失败静默。
+      await markSettingsDirty(meta);
     } catch (_) {
       // 静默：见方法注释
     }
