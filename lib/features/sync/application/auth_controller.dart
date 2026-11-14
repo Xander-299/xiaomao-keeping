@@ -157,6 +157,9 @@ class AuthController extends AsyncNotifier<AuthState> {
         return AuthState(email: lastEmail, accounts: accounts);
       }
       final String? raw = await store.read(sessionKeyFor(current));
+      // 迁移 / 冷启动也要把「账本范围」补齐：老库里的账本 ownerId 为空，
+      // 不绑的话迁移用户一升级就看不到自己的账本（真机 v0.8.9 → P6.5 踩到）。
+      await _applyAccountScope(current);
       return AuthState(
         session: AuthSession.tryParse(raw),
         email: current,
@@ -337,7 +340,13 @@ class AuthController extends AsyncNotifier<AuthState> {
       ),
     );
 
-    // 账本范围：首次登录绑定本机账本（若该账号还没有任何账本）
+    await _applyAccountScope(email);
+  }
+
+  /// 让账本范围与 [email] 对齐：绑定本机账本（若该账号还没有账本）、确保有账本、落 active id。
+  ///
+  /// 失败不抛：账本层异常不能把登录判失败，下一次进 App 再兜。
+  Future<void> _applyAccountScope(String email) async {
     final books = ref.read(bookRepositoryProvider);
     try {
       await books.bindUnownedBooksTo(email);
@@ -347,9 +356,10 @@ class AuthController extends AsyncNotifier<AuthState> {
         await books.setActiveBookIdFor(email, visible.id);
       }
     } catch (_) {
-      // 账本层异常不能把登录判失败：登录成功就是成功，账本下一次进 App 再兜
+      // 见上
     }
     ref.invalidate(activeBookIdProvider);
+    ref.invalidate(bookListProvider);
   }
 
   /// 切到另一个已保存账号（不校验 token 是否仍有效 —— 用的时候 401 会续期）。

@@ -103,4 +103,18 @@ void main() {
     final Book book = await BookRepository(db).ensureDefaultBook();
     expect(book.ownerId, 'a@example.com');
   });
+
+  test('已登录但没有归属账本：先把本机账本认领过来，不另建一本', () async {
+    final db = openTestDatabase();
+    addTearDown(db.close);
+    final repo = BookRepository(db);
+    final Book local = await repo.create(name: '本机账本');
+    await _signInAs(db, 'a@example.com');
+
+    final Book? visible = await repo.ensureVisibleBook();
+
+    expect(visible?.id, local.id, reason: '不能凭空建第二本空账本');
+    expect(visible?.ownerId, 'a@example.com');
+    expect((await repo.listVisible()).length, 1);
+  });
 }

@@ -227,10 +227,19 @@ class BookRepository {
   /// - 从未登录 → 建 `ownerId = NULL` 的本机账本；
   /// - 空态（退出后有保存账号）→ **返回 null，不建**（否则会凭空冒出本机账本）。
   Future<Book?> ensureVisibleBook() async {
-    final List<Book> existing = await listVisible();
+    List<Book> existing = await listVisible();
     if (existing.isNotEmpty) return existing.first;
     final String? email = await activeAccountEmail();
     if (email == null && await hasSavedAccounts()) return null;
+    if (email != null) {
+      // 先尝试把「本机账本」认领过来，再考虑新建 —— 否则账本 provider 可能抢在
+      // 登录绑定之前跑，凭空建出一本空账本、老数据被留在 ownerId 为空的那本里
+      //（真机 v0.8.9 → P6.5 升级时踩到）。
+      if (await bindUnownedBooksTo(email) > 0) {
+        existing = await listVisible();
+        if (existing.isNotEmpty) return existing.first;
+      }
+    }
     return create(
       name: defaultBookName,
       icon: '📒',

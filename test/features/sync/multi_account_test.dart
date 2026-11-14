@@ -213,4 +213,20 @@ void main() {
     expect(pushBody, contains(aBook.id));
     expect(pushBody, isNot(contains(bBook.id)), reason: 'B 的账本不能推到 A 的云');
   });
+
+  test('迁移时把本机账本绑给该账号（否则升级后账本列表会空）', () async {
+    final h = await _harness();
+    final Book local = await BookRepository(h.db).create(name: '本机账本');
+    await h.store.write(kSyncSessionKey, _session('old').toStorageJson());
+    await h.store.write(kSyncEmailKey, 'a@example.com');
+
+    await h.container.read(authControllerProvider.future);
+
+    final Book? after = await BookRepository(h.db).getById(local.id);
+    expect(after?.ownerId, 'a@example.com');
+    expect(
+      (await BookRepository(h.db).listVisible()).map((Book b) => b.id),
+      <String>[local.id],
+    );
+  });
 }
