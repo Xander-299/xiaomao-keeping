@@ -21,7 +21,6 @@ class MonthGrid extends StatelessWidget {
     required this.selectedDay,
     required this.onSelectDay,
     this.onLongPressDay,
-    this.onShiftMonth,
     this.now,
     this.maxDate,
   });
@@ -44,12 +43,6 @@ class MonthGrid extends StatelessWidget {
   /// （日历页用它直接进「记一笔」并带上这一天）。
   final ValueChanged<DateTime>? onLongPressDay;
 
-  /// 左右滑动翻月（F7.7 E 批）：delta = -1 上一月 / +1 下一月。
-  ///
-  /// 传空 = 完全不参与横向手势（记一笔的日期选择弹层就不传）。
-  /// 阈值 = **1/3 格宽**（SPEC §E.1.2），左滑 = 下一个月。
-  final ValueChanged<int>? onShiftMonth;
-
   /// 覆盖「今天」（测试注入用；为空取真实当前时间）。
   final DateTime? now;
 
@@ -62,7 +55,12 @@ class MonthGrid extends StatelessWidget {
     final DateTime today = now ?? DateTime.now();
     final int leading = DateTime(year, month, 1).weekday % 7; // 周日起始
     final int total = daysInMonth(year, month);
-    final int rows = ((leading + total) / 7).ceil();
+    // **固定 6 行**：翻页时两页必须一样高，否则下面的账单区会被顶一下。
+    // 多出来的格子是相邻月的灰日期（与「月初补格」同一套画法），看起来就是
+    // 完整的一页月历，而不是一块空白。
+    const int kRows = 6;
+    final int natural = ((leading + total) / 7).ceil();
+    final int rows = natural < kRows ? kRows : natural;
 
     final Widget grid = Column(
       children: <Widget>[
@@ -101,10 +99,7 @@ class MonthGrid extends StatelessWidget {
       ],
     );
 
-    final ValueChanged<int>? shift = onShiftMonth;
-    return shift == null
-        ? grid
-        : _MonthSwipe(onShiftMonth: shift, child: grid);
+    return grid;
   }
 
   Widget _buildCell(
@@ -224,49 +219,4 @@ class MonthGrid extends StatelessWidget {
       ),
     ),
   );
-}
-
-/// 给月历套一层「左右滑动翻月」的薄壳（F7.7 E 批）。
-///
-/// 为什么单独一个 StatefulWidget：拖拽累计量必须是**跨帧稳定**的状态，
-/// 放在 `MonthGrid.build` 的局部变量里会被任何一次重建清零。
-///
-/// 手势安全性：只注册**横向** drag，竖向滚动仍归外层的 `SingleChildScrollView`
-/// （手势竞技场按轴判定，不冲突）；格子上的 InkWell（点击 / 长按）优先级更高，
-/// 没有位移时不会被 drag 抢走。真机走查必须覆盖「上下滚动仍正常」这一项（SPEC §E.5）。
-class _MonthSwipe extends StatefulWidget {
-  const _MonthSwipe({required this.onShiftMonth, required this.child});
-
-  final ValueChanged<int> onShiftMonth;
-  final Widget child;
-
-  @override
-  State<_MonthSwipe> createState() => _MonthSwipeState();
-}
-
-class _MonthSwipeState extends State<_MonthSwipe> {
-  /// 本次拖拽的累计水平位移（正 = 右滑）。
-  double _dx = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        // 阈值 = 1/3 格宽（SPEC §E.1.2）：格子外还有 2px margin，按整宽/7 算足够准
-        final double threshold = constraints.maxWidth / 7 / 3;
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onHorizontalDragStart: (_) => _dx = 0,
-          onHorizontalDragUpdate: (DragUpdateDetails d) => _dx += d.delta.dx,
-          onHorizontalDragEnd: (_) {
-            final double moved = _dx;
-            _dx = 0;
-            if (moved.abs() < threshold) return; // 没滑够就当没发生（避免误翻月）
-            widget.onShiftMonth(moved < 0 ? 1 : -1); // 左滑 → 下一个月
-          },
-          child: widget.child,
-        );
-      },
-    );
-  }
 }

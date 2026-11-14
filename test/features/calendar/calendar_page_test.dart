@@ -287,17 +287,17 @@ void main() {
     final String header = '${now.year}年${now.month}月';
 
     // 左滑 = 下一个月 → 已经是当前月，**不该动**（与首页 canGoNext 同口径）
-    await tester.drag(find.byType(MonthGrid), const Offset(-260, 0));
+    await tester.drag(find.byType(MonthGrid), const Offset(-520, 0));
     await tester.pumpAndSettle();
     expect(find.text(header), findsOneWidget, reason: '不能翻到未来月');
 
     // 右滑 = 上一个月 → 正常
-    await tester.drag(find.byType(MonthGrid), const Offset(260, 0));
+    await tester.drag(find.byType(MonthGrid), const Offset(520, 0));
     await tester.pumpAndSettle();
     expect(find.text('${prev.year}年${prev.month}月'), findsOneWidget);
 
     // 从历史月左滑回来
-    await tester.drag(find.byType(MonthGrid), const Offset(-260, 0));
+    await tester.drag(find.byType(MonthGrid), const Offset(-520, 0));
     await tester.pumpAndSettle();
     expect(find.text(header), findsOneWidget);
   });
@@ -316,7 +316,7 @@ void main() {
     final DateTime now = DateTime.now();
     final String header = '${now.year}年${now.month}月';
 
-    // 只滑 10dp（< 1/3 格宽）→ 不动
+    // 只滑 10dp（远小于半屏）→ 不动
     await tester.drag(find.byType(MonthGrid), const Offset(-10, 0));
     await tester.pumpAndSettle();
     expect(find.text(header), findsOneWidget);
@@ -332,8 +332,7 @@ void main() {
 
   // 用户报：「滑动切换页面没有过渡动画，很生硬」。
   // 两件事一起兜住：① 翻月时**不能闪转圈**（controller 不再切 loading）；
-  // ② 要有过渡 —— 动画期间新旧两页同时在场（AnimatedSwitcher 的 outgoing 还在），
-  //    落定后只剩新的。
+  // ② 要有过渡 —— 落定动画期间新旧两页同时在场，落定后只剩新的。
   testWidgets('翻月有过渡动画：动画中新旧两页同时在场，且全程不闪转圈', (
     WidgetTester tester,
   ) async {
@@ -349,18 +348,84 @@ void main() {
     // 只能往历史月翻（未来月被 R2 挡住）
     final DateTime prev = DateTime(now.year, now.month - 1);
 
-    await tester.drag(find.byType(MonthGrid), const Offset(260, 0));
-    await tester.pump(); // 触发状态更新
+    await tester.drag(find.byType(MonthGrid), const Offset(520, 0));
+    await tester.pump(); // 松手 → 落定动画开始
     await tester.pump(const Duration(milliseconds: 80)); // 动画进行中
 
-    // 过渡中：新旧两页共存（瞬切的话只会有 1 个），并且有 SlideTransition
+    // 过渡中：新旧两页共存（瞬切的话只会有 1 个），且在屏幕上错开
     expect(find.byType(MonthGrid), findsNWidgets(2), reason: '翻月要有过渡，不能瞬切');
-    expect(find.byType(SlideTransition), findsWidgets);
+    final double leftA = tester.getTopLeft(find.byType(MonthGrid).at(0)).dx;
+    final double leftB = tester.getTopLeft(find.byType(MonthGrid).at(1)).dx;
+    expect((leftA - leftB).abs(), greaterThan(40), reason: '两页要真的有位移，不是原地换');
     // 翻月不闪整页转圈
     expect(find.byType(CircularProgressIndicator), findsNothing);
 
     await tester.pumpAndSettle();
     expect(find.byType(MonthGrid), findsOneWidget);
+    expect(find.text('${prev.year}年${prev.month}月'), findsOneWidget);
+  });
+
+  // 用户要求：「我要的是那种甚至能翻一半的」——页面必须**跟手**：
+  // 手指按住不放，就停在半页；松手没过半屏才弹回。
+  testWidgets('跟手翻页：拖到一半停住不自动跑完，松手不够半屏弹回', (
+    WidgetTester tester,
+  ) async {
+    final db = openTestDatabase();
+    addTearDown(db.close);
+    await BookRepository(db).ensureDefaultBook();
+
+    await pumpApp(tester, database: db);
+    await tester.tap(find.text('日历'));
+    await tester.pumpAndSettle();
+
+    final DateTime now = DateTime.now();
+    final String header = '${now.year}年${now.month}月';
+
+    final TestGesture gesture = await tester.startGesture(
+      tester.getCenter(find.byType(MonthGrid)),
+    );
+    // 往右拖 = 翻上一月（当前月是「最新月」，不能往左拖）。
+    // 先过 slop 再拖：真机是连续事件，测试里必须分两步才拿得到 update。
+    await gesture.moveBy(const Offset(30, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(350, 0));
+    await tester.pump();
+
+    // 拖到一半：两页同时在场，当前页已经跟着手指走掉了一大截
+    expect(find.byType(MonthGrid), findsNWidgets(2));
+    final double left = tester.getTopLeft(find.byType(MonthGrid).first).dx;
+    expect(left, greaterThan(200), reason: '页面要跟手走，不是等松手才动');
+
+    // 按住不动 400ms：页面必须停在原地，不能自己跑完
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      tester.getTopLeft(find.byType(MonthGrid).first).dx,
+      closeTo(left, 0.5),
+      reason: '手指还按着，翻页就该停在半路',
+    );
+
+    // 松手：没过半屏 → 弹回，月份不变
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.byType(MonthGrid), findsOneWidget);
+    expect(find.text(header), findsOneWidget);
+  });
+
+  // 位移不够半屏、但甩得够快 → 也翻过去（真机上的常见操作）。
+  testWidgets('快速甩动：位移不到半屏也能翻页', (WidgetTester tester) async {
+    final db = openTestDatabase();
+    addTearDown(db.close);
+    await BookRepository(db).ensureDefaultBook();
+
+    await pumpApp(tester, database: db);
+    await tester.tap(find.text('日历'));
+    await tester.pumpAndSettle();
+
+    final DateTime now = DateTime.now();
+    final DateTime prev = DateTime(now.year, now.month - 1);
+
+    await tester.fling(find.byType(MonthGrid), const Offset(160, 0), 1200);
+    await tester.pumpAndSettle();
     expect(find.text('${prev.year}年${prev.month}月'), findsOneWidget);
   });
 
@@ -414,7 +479,7 @@ void main() {
     expect(find.text('午餐'), findsOneWidget);
 
     // 翻到上一个月：网格变了，但日期头与账单都不动
-    await tester.drag(find.byType(MonthGrid), const Offset(260, 0));
+    await tester.drag(find.byType(MonthGrid), const Offset(520, 0));
     await tester.pumpAndSettle();
     expect(find.text('${prev.year}年${prev.month}月'), findsOneWidget);
     expect(

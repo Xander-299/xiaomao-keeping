@@ -2,7 +2,7 @@
 ///
 /// 加载顺序（2026-10-29 用户要求，见 `calendar_controller.dart` 的类注释）：
 /// **网格先出 → 选中日账单 → 整月标注**。所以页面里「网格 + 月汇总」和「当日账单」
-/// 是两块独立区域：翻月只换上面那块（`AnimatedSwitcher` 只包它），
+/// 是两块独立区域：翻月只换上面那块（`MonthPager` 只包它），
 /// 下面账单继续跟着**选中的日期**走，不会跟着月份跳。
 ///
 /// 视觉参考 docs/design/calendar.jpg（布局对齐，配色沿用 App 品牌色）。
@@ -23,6 +23,7 @@ import 'package:yanxin/core/utils/money.dart';
 import 'package:yanxin/data/providers/category_providers.dart';
 import 'package:yanxin/data/repositories/transaction_repository.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
+import 'package:yanxin/features/ledger/application/month_summary.dart';
 import 'package:yanxin/features/ledger/presentation/tx_restore_message.dart';
 import 'package:yanxin/features/ledger/presentation/widgets/swipe_action_row.dart';
 import 'package:yanxin/features/ledger/presentation/widgets/tx_delete_dialog.dart';
@@ -31,8 +32,10 @@ import 'package:yanxin/features/reports/application/reports_controller.dart';
 import 'package:yanxin/features/shared/write_failure.dart';
 import 'package:yanxin/features/stats/application/stats_controller.dart';
 
+import '../application/calendar_aggregate.dart';
 import '../application/calendar_controller.dart';
 import 'widgets/month_grid.dart';
+import 'widgets/month_pager.dart';
 
 /// 日历页。
 class CalendarPage extends ConsumerStatefulWidget {
@@ -43,23 +46,6 @@ class CalendarPage extends ConsumerStatefulWidget {
 }
 
 class _CalendarPageState extends ConsumerState<CalendarPage> {
-  /// 翻月方向：1 = 往后翻（新月份从右侧进），-1 = 往前翻。
-  int _dir = 1;
-
-  @override
-  void initState() {
-    super.initState();
-    ref.listenManual<CalendarState>(calendarProvider, (
-      CalendarState? prev,
-      CalendarState next,
-    ) {
-      if (prev == null) return;
-      final int ia = prev.year * 12 + prev.month;
-      final int ib = next.year * 12 + next.month;
-      if (ia != ib && mounted) setState(() => _dir = ib > ia ? 1 : -1);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     // ⚠️ 同步 state（不是 AsyncValue）：首帧就能画网格，不用等任何查询。
@@ -81,43 +67,10 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  // 上半块：网格 + 月汇总。**只有这块跟着月份做过渡** ——
+                  // 上半块：网格 + 月汇总。**只有这块跟着月份翻** ——
                   // 下半块的账单属于「选中日」，翻月不该动它。
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 280),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    layoutBuilder: (Widget? current, List<Widget> previous) =>
-                        ClipRect(
-                          child: Stack(
-                            alignment: Alignment.topCenter,
-                            children: <Widget>[...previous, ?current],
-                          ),
-                        ),
-                    // 翻月 = **整页翻过去**（不是轻微滑动、也不叠淡入淡出）：
-                    // 新页从翻月方向整屏滑入，旧页整屏滑出，像翻一页月历。
-                    transitionBuilder:
-                        (Widget child, Animation<double> animation) {
-                          return SlideTransition(
-                            position:
-                                Tween<Offset>(
-                                  begin: Offset(1.0 * _dir, 0),
-                                  end: Offset.zero,
-                                ).animate(
-                                  CurvedAnimation(
-                                    parent: animation,
-                                    curve: Curves.easeInOutCubic,
-                                  ),
-                                ),
-                            child: child,
-                          );
-                        },
-                    child: _MonthBlock(
-                      key: ValueKey<String>('${state.year}-${state.month}'),
-                      state: state,
-                      nameOf: nameOf,
-                    ),
-                  ),
+                  _buildPager(state),
+
                   _SelectedDaySection(
                     state: state,
                     categoryNameOf: nameOf,
@@ -132,6 +85,70 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
         ],
       ),
     );
+  }
+
+  /// 上半块：**跟手翻页**的月历（翻到一半就停在一半，松手再落定）。
+  ///
+  /// 相邻月在这里就提前取好（[monthAggPreviewProvider]）：手指还在拖的时候，
+  /// 另一页已经有日标注与月汇总，不会先看到一张空网格再「补数字」。
+  Widget _buildPager(CalendarState state) {
+    final bool hasNext = canGoNext(state.year, state.month);
+    final DateTime prev = _shiftMonth(state.year, state.month, -1);
+    final DateTime next = _shiftMonth(state.year, state.month, 1);
+    final MonthAgg? prevAgg = ref
+        .watch(monthAggPreviewProvider((year: prev.year, month: prev.month)))
+        .value;
+    final MonthAgg? nextAgg = hasNext
+        ? ref
+              .watch(
+                monthAggPreviewProvider((year: next.year, month: next.month)),
+              )
+              .value
+        : null;
+
+    return MonthPager(
+      year: state.year,
+      month: state.month,
+      onTurn: (int delta) =>
+          ref.read(calendarProvider.notifier).shiftMonth(delta),
+      current: _MonthBlock(
+        key: ValueKey<String>('${state.year}-${state.month}'),
+        year: state.year,
+        month: state.month,
+        byDay: state.byDay,
+        summary: state.summary,
+        dailyAvgExpenseCents: state.dailyAvgExpenseCents,
+        ready: state.monthAgg.hasValue,
+        selectedDay: state.selectedDayInGrid,
+        onSelectDay: (int day) =>
+            ref.read(calendarProvider.notifier).selectDay(day),
+        onLongPressDay: (DateTime day) {
+          ref.read(calendarProvider.notifier).selectDay(day.day);
+          context.push('/record?date=${day.millisecondsSinceEpoch}');
+        },
+      ),
+      previous: _previewBlock(prev, prevAgg),
+      next: hasNext ? _previewBlock(next, nextAgg) : null,
+    );
+  }
+
+  /// 相邻月的「预览页」：不可点、不高亮选中日，只负责在翻页途中被看见。
+  Widget _previewBlock(DateTime ym, MonthAgg? agg) => _MonthBlock(
+    key: ValueKey<String>('preview-${ym.year}-${ym.month}'),
+    year: ym.year,
+    month: ym.month,
+    byDay: agg?.byDay ?? const <int, DayAgg>{},
+    summary: agg?.summary ?? MonthAgg.empty.summary,
+    dailyAvgExpenseCents: agg?.dailyAvgExpenseCents ?? 0,
+    ready: agg != null,
+    selectedDay: 0,
+  );
+
+  DateTime _shiftMonth(int year, int month, int delta) {
+    final int m = month + delta;
+    if (m < 1) return DateTime(year - 1, 12);
+    if (m > 12) return DateTime(year + 1, 1);
+    return DateTime(year, m);
   }
 
   Future<void> _confirmDelete(
@@ -203,16 +220,41 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
 
 /// 上半块：月历网格 + 月结余/日均。
 ///
-/// 单独抽出来是为了让 [AnimatedSwitcher] 能用「年月」当 key：key 一变才播翻月动画，
-/// 而下面「选中日账单」不受影响。
-class _MonthBlock extends ConsumerWidget {
-  const _MonthBlock({super.key, required this.state, required this.nameOf});
+/// 数据全部走参数（不再直接读 [CalendarState]）：翻页时同一个组件既要画
+/// 「当前月」，也要画相邻月的**预览页**（数据来自 [monthAggPreviewProvider]）。
+class _MonthBlock extends StatelessWidget {
+  const _MonthBlock({
+    super.key,
+    required this.year,
+    required this.month,
+    required this.byDay,
+    required this.summary,
+    required this.dailyAvgExpenseCents,
+    required this.ready,
+    required this.selectedDay,
+    this.onSelectDay,
+    this.onLongPressDay,
+  });
 
-  final CalendarState state;
-  final String Function(String?) nameOf;
+  final int year;
+  final int month;
+  final Map<int, DayAgg> byDay;
+  final MonthSummary summary;
+  final int dailyAvgExpenseCents;
+
+  /// 整月聚合是否已经到手（没到手时汇总条显示「—」，不挡住网格）。
+  final bool ready;
+
+  /// 高亮的日子；0 = 不高亮（预览页、或选中日不在本月）。
+  final int selectedDay;
+
+  /// 预览页不传这两个回调：它只负责被看见，不响应点按。
+  final ValueChanged<int>? onSelectDay;
+  final ValueChanged<DateTime>? onLongPressDay;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
+    final ValueChanged<int>? select = onSelectDay;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -220,26 +262,23 @@ class _MonthBlock extends ConsumerWidget {
           // 原型 `.cal { padding: 6px 8px 0 }`
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: MonthGrid(
-            year: state.year,
-            month: state.month,
-            byDay: state.byDay,
-            // 选中日不在本月时传 0：网格里不高亮任何一天，但下面账单照旧
-            selectedDay: state.selectedDayInGrid,
-            onSelectDay: (int day) =>
-                ref.read(calendarProvider.notifier).selectDay(day),
+            year: year,
+            month: month,
+            byDay: byDay,
+            selectedDay: selectedDay,
+            onSelectDay: select ?? (int _) {},
             // F7.7 E 批：长按某天 → 直接记这一天的账（顺带把那天选中，
-            // 回来就能看到刚记的那笔）；左右滑动 → 翻月
-            onLongPressDay: (DateTime day) {
-              ref.read(calendarProvider.notifier).selectDay(day.day);
-              context.push('/record?date=${day.millisecondsSinceEpoch}');
-            },
-            onShiftMonth: (int delta) =>
-                ref.read(calendarProvider.notifier).shiftMonth(delta),
+            // 回来就能看到刚记的那笔）；左右拖动 → 翻月（由外面那层管手势）
+            onLongPressDay: onLongPressDay,
           ),
         ),
         // 网格与月结余卡之间不再另加间距：原型是 `.day` 的 2px 外边距
         // + `.summary-bar` 的 10px margin（= 12px），由卡的 margin 承担。
-        _SummaryBar(state: state),
+        _SummaryBar(
+          summary: summary,
+          dailyAvgExpenseCents: dailyAvgExpenseCents,
+          ready: ready,
+        ),
         const SizedBox(height: 8),
       ],
     );
@@ -330,15 +369,20 @@ class _HeaderBody extends ConsumerWidget {
 ///
 /// 整月聚合是**第二段数据**：还没回来时显示「—」，不挡住网格。
 class _SummaryBar extends StatelessWidget {
-  const _SummaryBar({required this.state});
+  const _SummaryBar({
+    required this.summary,
+    required this.dailyAvgExpenseCents,
+    required this.ready,
+  });
 
-  final CalendarState state;
+  final MonthSummary summary;
+  final int dailyAvgExpenseCents;
+  final bool ready;
 
   @override
   Widget build(BuildContext context) {
     final ToonPalette p = context.toon;
-    final bool ready = state.monthAgg.hasValue;
-    final int balance = state.summary.balanceCents;
+    final int balance = summary.balanceCents;
     final Color balanceColor = balance < 0
         ? p.red
         : balance > 0
@@ -359,7 +403,7 @@ class _SummaryBar extends StatelessWidget {
           ),
           _SummaryItem(
             label: '日均支出',
-            value: ready ? centsToYuan(state.dailyAvgExpenseCents) : '—',
+            value: ready ? centsToYuan(dailyAvgExpenseCents) : '—',
             valueColor: p.red,
           ),
         ],
