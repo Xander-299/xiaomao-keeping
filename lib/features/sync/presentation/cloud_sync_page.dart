@@ -1,8 +1,7 @@
-/// 「云同步」页（路由 `/cloud-sync`）：P6.2 账号 + P6.3 云备份。
+/// 「云同步」页：账号 + 云备份 + 账本同步（P6.2 / P6.3 / P6.4）。
 ///
-/// 账号：邮箱验证码登录、退出、注销、同步开关。
-/// 云备份：手动上传当前账本备份 / 从云端恢复（合并 + 指纹去重）。
-/// **P6.4 双向同步未做**，页面里不出现「自动同步 / 实时同步」。
+/// 布局原则：**一屏三块**——账号卡、功能卡（开关 / 云备份 / 账本同步）、账号操作。
+/// 不再写长段说明；每项只保留一行状态文案，操作按钮缩成小号放在行尾。
 library;
 
 import 'dart:async';
@@ -273,30 +272,6 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
       '${t.year}-${_two(t.month)}-${_two(t.day)} '
       '${_two(t.hour)}:${_two(t.minute)}';
 
-  Widget _backupStatus(ToonPalette p, AsyncValue<BackupInfo?> info, bool enabled) {
-    final String text;
-    if (!enabled) {
-      text = '打开上方「云同步」开关后，才能备份 / 恢复';
-    } else {
-      text = info.when(
-        loading: () => '正在读取云端备份…',
-        error: (Object e, StackTrace _) => '读取失败：${_describe(e)}',
-        data: (BackupInfo? b) => b == null
-            ? '云端还没有备份'
-            : '上次备份：${_stamp(b.createdAt)} · ${b.sizeLabel}',
-      );
-    }
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        color: p.ink2,
-        height: 1.7,
-      ),
-    );
-  }
-
   Future<void> _syncNow() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -316,31 +291,36 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
     }
   }
 
-  Widget _syncStatus(ToonPalette p, SyncStatusState state) {
-    final String text;
-    if (state.syncing) {
-      text = '正在同步…';
-    } else if (state.error != null) {
-      text = '同步失败：${state.error}';
-    } else if (state.lastSyncAt == null) {
-      text = '还没同步过';
-    } else {
-      final String stamp = _stamp(state.lastSyncAt!);
-      final SyncResult? r = state.last;
-      text = r == null
-          ? '上次同步：$stamp'
-          : '上次同步：$stamp · 上行 ${r.pushed} / 下行 ${r.pulled} / 跳过 ${r.skipped}';
-    }
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        color: p.ink2,
-        height: 1.7,
-      ),
+  String _backupText(AsyncValue<BackupInfo?> info, bool enabled) {
+    if (!enabled) return '未开启';
+    return info.when(
+      loading: () => '读取中…',
+      error: (Object e, StackTrace _) => '读取失败',
+      data: (BackupInfo? b) => b == null
+          ? '还没有备份'
+          : '上次 ${_stamp(b.createdAt)} · ${b.sizeLabel}',
     );
   }
+
+  String _syncText(SyncStatusState state) {
+    if (state.syncing) return '同步中…';
+    if (state.error != null) return '同步失败';
+    if (state.lastSyncAt == null) return '还没同步过';
+    final SyncResult? r = state.last;
+    final String stamp = _stamp(state.lastSyncAt!);
+    return r == null
+        ? '上次 $stamp'
+        : '上次 $stamp · ↑${r.pushed} ↓${r.pulled}';
+  }
+
+  Widget _rowDivider(ToonPalette p) => Divider(height: 1, color: p.line);
+
+  TextStyle _statusStyle(ToonPalette p) => TextStyle(
+    fontSize: 11.5,
+    fontWeight: FontWeight.w600,
+    color: p.ink2,
+    height: 1.5,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -353,43 +333,30 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
       backgroundColor: p.paper,
       appBar: AppBar(title: const Text('云同步')),
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 28),
+        padding: const EdgeInsets.fromLTRB(0, 14, 0, 24),
         children: <Widget>[
-          const ToonSectionTitle(title: '账号'),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
-            child: _StatusCard(auth: auth, enabled: enabled),
-          ),
-          if (!auth.signedIn) ..._signedOutForm(),
+          if (!auth.signedIn) ..._signedOutForm(p),
           if (auth.signedIn) ..._signedInPanel(p, auth, enabled),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-            child: Text(
-              '· 默认关闭：未登录 / 未开启时一个字节都不会发出去\n'
-              '· 只走 HTTPS；地址写死在代码里，不做动态下发\n'
-              '· 云备份手动触发；P6.4 双向同步尚未开放',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: p.ink2,
-                height: 1.7,
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
-  List<Widget> _signedOutForm() => <Widget>[
-    const ToonSectionTitle(title: '登录'),
+  List<Widget> _signedOutForm(ToonPalette p) => <Widget>[
     Padding(
-      padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: ToonCard(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
+            const Text(
+              '登录账号',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            Text('未登录 · 邮箱验证码登录', style: _statusStyle(p)),
+            const SizedBox(height: 14),
             TextField(
               key: const ValueKey<String>('cloudSyncEmail'),
               controller: _email,
@@ -401,7 +368,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
                 hintText: 'you@example.com',
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             ToonButton(
               key: const ValueKey<String>('cloudSyncSendCode'),
               label: _cooldown > 0 ? '${_cooldown}s 后可重发' : '发送验证码',
@@ -409,7 +376,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
               block: true,
               onPressed: _busy || _cooldown > 0 ? null : _sendCode,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             TextField(
               key: const ValueKey<String>('cloudSyncCode'),
               controller: _code,
@@ -440,157 +407,159 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
 
   List<Widget> _signedInPanel(ToonPalette p, AuthState auth, bool enabled) {
     final AsyncValue<BackupInfo?> backup = ref.watch(cloudBackupInfoProvider);
+    final SyncStatusState sync =
+        ref.watch(syncStatusProvider).value ?? const SyncStatusState();
     final bool hasBackup = backup.value != null;
+
     return <Widget>[
-        const ToonSectionTitle(title: '同步'),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
-          child: ToonCard(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            clip: true,
-            child: ToonField(
-              label: '云同步',
-              value: enabled ? '已开启' : '已关闭',
-              trailing: Switch(
-                key: const ValueKey<String>('cloudSyncSwitch'),
-                value: enabled,
-                onChanged: _busy
-                    ? null
-                    : (bool v) =>
-                          ref.read(cloudSyncEnabledProvider.notifier).setEnabled(v),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: _StatusCard(auth: auth),
+      ),
+      const SizedBox(height: 12),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: ToonCard(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          clip: true,
+          child: Column(
+            children: <Widget>[
+              ToonField(
+                label: '云同步',
+                value: enabled ? '已开启' : '已关闭',
+                trailing: Switch(
+                  key: const ValueKey<String>('cloudSyncSwitch'),
+                  value: enabled,
+                  onChanged: _busy
+                      ? null
+                      : (bool v) => ref
+                            .read(cloudSyncEnabledProvider.notifier)
+                            .setEnabled(v),
+                ),
+              ),
+              if (!enabled)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('打开后可备份与同步', style: _statusStyle(p)),
+                  ),
+                ),
+              _rowDivider(p),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        const Text(
+                          '云备份',
+                          style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        ToonButton(
+                          key: const ValueKey<String>('cloudBackupUpload'),
+                          label: '备份',
+                          small: true,
+                          onPressed: enabled && !_busy ? _uploadBackup : null,
+                        ),
+                        const SizedBox(width: 8),
+                        ToonButton(
+                          key: const ValueKey<String>('cloudBackupRestore'),
+                          label: '恢复',
+                          small: true,
+                          kind: ToonButtonKind.ghost,
+                          onPressed: enabled && hasBackup && !_busy
+                              ? _restoreBackup
+                              : null,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(_backupText(backup, enabled), style: _statusStyle(p)),
+                  ],
+                ),
+              ),
+              _rowDivider(p),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        const Text(
+                          '账本同步',
+                          style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        ToonButton(
+                          key: const ValueKey<String>('cloudSyncNow'),
+                          label: '同步',
+                          small: true,
+                          onPressed: enabled && !_busy ? _syncNow : null,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(_syncText(sync), style: _statusStyle(p)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: ToonButton(
+                key: const ValueKey<String>('cloudSyncSignOut'),
+                label: '退出登录',
+                kind: ToonButtonKind.ghost,
+                small: true,
+                block: true,
+                onPressed: _busy ? null : _signOut,
               ),
             ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-          child: Text(
-            '· 开关决定是否允许云备份请求；关掉后备份 / 恢复会置灰\n'
-            '· 退出登录不会删除本机账本',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: p.ink2,
-              height: 1.7,
+            const SizedBox(width: 10),
+            Expanded(
+              child: ToonButton(
+                key: const ValueKey<String>('cloudSyncDelete'),
+                label: '注销账号',
+                kind: ToonButtonKind.danger,
+                small: true,
+                block: true,
+                onPressed: _busy ? null : _deleteAccount,
+              ),
             ),
-          ),
+          ],
         ),
-        const ToonSectionTitle(title: '云备份'),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
-          child: ToonCard(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                _backupStatus(p, backup, enabled),
-                const SizedBox(height: 12),
-                ToonButton(
-                  key: const ValueKey<String>('cloudBackupUpload'),
-                  label: _busy ? '请稍候…' : '立即备份到云端',
-                  block: true,
-                  onPressed: enabled && !_busy ? _uploadBackup : null,
-                ),
-                const SizedBox(height: 8),
-                ToonButton(
-                  key: const ValueKey<String>('cloudBackupRestore'),
-                  label: '从云端恢复',
-                  kind: ToonButtonKind.ghost,
-                  block: true,
-                  onPressed: enabled && hasBackup && !_busy
-                      ? _restoreBackup
-                      : null,
-                ),
-              ],
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-          child: Text(
-            '· 手动触发，不会后台上传；只存最近几份快照\n'
-            '· 恢复是合并 + 指纹去重，不删除现有数据',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: p.ink2,
-              height: 1.7,
-            ),
-          ),
-        ),
-        const ToonSectionTitle(title: '账本同步（实验）'),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 2, 16, 0),
-          child: ToonCard(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                _syncStatus(
-                  p,
-                  ref.watch(syncStatusProvider).value ?? const SyncStatusState(),
-                ),
-                const SizedBox(height: 12),
-                ToonButton(
-                  key: const ValueKey<String>('cloudSyncNow'),
-                  label: _busy ? '请稍候…' : '立即同步',
-                  block: true,
-                  onPressed: enabled && !_busy ? _syncNow : null,
-                ),
-              ],
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-          child: Text(
-            '· 第一版只做手动同步：同一条记录以更新时间较晚者为准\n'
-            '· 不含外观 / 布局设置；多设备同时新建同一笔可能重复',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: p.ink2,
-              height: 1.7,
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: ToonButton(
-            key: const ValueKey<String>('cloudSyncSignOut'),
-            label: '退出登录',
-            kind: ToonButtonKind.ghost,
-            block: true,
-            onPressed: _busy ? null : _signOut,
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-          child: ToonButton(
-            key: const ValueKey<String>('cloudSyncDelete'),
-            label: '注销账号（云端硬删）',
-            kind: ToonButtonKind.danger,
-            block: true,
-            onPressed: _busy ? null : _deleteAccount,
-          ),
-        ),
-      ];
+      ),
+    ];
   }
 }
-
 class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.auth, required this.enabled});
+  const _StatusCard({required this.auth});
 
   final AuthState auth;
-  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     final ToonPalette p = context.toon;
     final String title = auth.signedIn ? (auth.email ?? '已登录') : '未登录';
-    final String subtitle = auth.signedIn
-        ? (enabled ? '同步已开启' : '同步已关闭')
-        : '登录后可备份到云端 / 换机恢复';
+    // 开关状态在下方功能卡里已有，这里不再重复
+    final String subtitle = auth.signedIn ? '已登录' : '未登录';
 
     return ToonCard(
       padding: const EdgeInsets.all(16),
