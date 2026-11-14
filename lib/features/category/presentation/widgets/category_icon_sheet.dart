@@ -208,7 +208,7 @@ class _IconCell extends StatelessWidget {
           borderRadius: BorderRadius.circular(Tok.rSm),
           border: Border.all(
             color: selected ? p.brandDeep : Colors.transparent,
-            width: 2,
+            width: Tok.bw,
           ),
         ),
         child: Icon(
@@ -248,7 +248,7 @@ class _ColorCell extends StatelessWidget {
           shape: BoxShape.circle,
           border: Border.all(
             color: selected ? p.ink : Colors.transparent,
-            width: 2,
+            width: Tok.bw,
           ),
         ),
         child: selected
