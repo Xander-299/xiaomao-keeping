@@ -1,4 +1,4 @@
-/// 云同步 HTTP 客户端（P6.2：账号 + 续期；P6.3 再补备份接口）。
+/// 云同步 HTTP 客户端（P6.2 账号 / P6.3 备份 / P6.4 增量同步）。
 ///
 /// 三条硬约束：
 /// 1. **每个请求都必须先过 [CloudSyncGate]** —— 这是「不偷偷联网」的唯一入口，
@@ -258,6 +258,12 @@ class SyncResponse {
   bool get isSuccess => statusCode >= 200 && statusCode < 300;
 }
 
+/// 编译期代理（**仅调试 / QA**）：`--dart-define=SYNC_PROXY=192.168.1.10:7890`。
+///
+/// 默认空 = 直连，正式包不带这个值。用于设备所在网络直连 Cloudflare 被拦、
+/// 但电脑上有可用代理的联调场景；不要在发布构建里传。
+const String kSyncProxyEnv = String.fromEnvironment('SYNC_PROXY');
+
 /// 传输抽象：单测注入假实现，生产走 [HttpSyncTransport]。
 abstract class SyncTransport {
   Future<SyncResponse> send(SyncRequest request);
@@ -268,7 +274,11 @@ class HttpSyncTransport implements SyncTransport {
   HttpSyncTransport({
     HttpClient? client,
     this.timeout = const Duration(seconds: 15),
-  }) : _client = client ?? HttpClient();
+  }) : _client = client ?? HttpClient() {
+    if (kSyncProxyEnv.trim().isNotEmpty) {
+      _client.findProxy = (Uri _) => 'PROXY ${kSyncProxyEnv.trim()}';
+    }
+  }
 
   final HttpClient _client;
   final Duration timeout;
@@ -280,9 +290,13 @@ class HttpSyncTransport implements SyncTransport {
         .timeout(timeout);
     request.headers.forEach(req.headers.set);
     if (request.bodyBytes != null) {
+      // 显式 Content-Length：部分 HTTP 代理不接受 chunked 请求体
+      req.contentLength = request.bodyBytes!.length;
       req.add(request.bodyBytes!);
     } else if (request.body != null) {
-      req.write(request.body!);
+      final List<int> body = utf8.encode(request.body!);
+      req.contentLength = body.length;
+      req.add(body);
     }
     final HttpClientResponse res = await req.close().timeout(timeout);
     final String body = await res
