@@ -239,7 +239,7 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
       context: context,
       backgroundColor: p.paper,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(Tok.rLg)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(Tok.rXl)),
       ),
       builder: (BuildContext sheetContext) => SafeArea(
         // 矮视口（横屏 / 小屏）下操作行可能超出面板上限：允许滚动，禁止溢出。
@@ -288,7 +288,7 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -402,15 +402,15 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
                     '挂到哪个一级分类下？',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color: p.ink2,
+                      color: p.ink,
                     ),
                   ),
                 ),
@@ -570,19 +570,25 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
           ].join('；'),
         ),
         actions: <Widget>[
-          TextButton(
+          ToonButton(
+            label: '取消',
+            kind: ToonButtonKind.ghost,
+            small: true,
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('取消'),
           ),
-          TextButton(
+          ToonButton(
+            label: '迁移账单后删除',
+            kind: ToonButtonKind.ghost,
+            small: true,
             onPressed: () =>
                 Navigator.of(dialogContext).pop(_RemoveChoice.migrate),
-            child: const Text('迁移账单后删除'),
           ),
-          FilledButton(
+          ToonButton(
+            label: '归档（保留历史）',
+            kind: ToonButtonKind.primary,
+            small: true,
             onPressed: () =>
                 Navigator.of(dialogContext).pop(_RemoveChoice.archive),
-            child: const Text('归档（保留历史）'),
           ),
         ],
       ),
@@ -633,8 +639,19 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              const SizedBox(height: 8),
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: context.toon.line,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
               const Padding(
-                padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+                padding: EdgeInsets.fromLTRB(20, 8, 20, 4),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -683,19 +700,17 @@ class _CategoryManagePageState extends ConsumerState<CategoryManagePage> {
         title: Text(title),
         content: Text(message),
         actions: <Widget>[
-          TextButton(
+          ToonButton(
+            label: '取消',
+            kind: ToonButtonKind.ghost,
+            small: true,
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
           ),
-          FilledButton(
-            style: danger
-                ? FilledButton.styleFrom(
-                    backgroundColor: context.toon.redTint,
-                    foregroundColor: context.toon.redInk,
-                  )
-                : null,
+          ToonButton(
+            label: confirmLabel,
+            kind: danger ? ToonButtonKind.danger : ToonButtonKind.primary,
+            small: true,
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(confirmLabel),
           ),
         ],
       ),
@@ -1022,7 +1037,7 @@ class _SheetTile extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         child: Row(
           children: <Widget>[
             Icon(icon, size: 22, color: danger ? p.redInk : p.ink2),
@@ -1031,7 +1046,7 @@ class _SheetTile extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  fontSize: 14.5,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                   color: color,
                 ),

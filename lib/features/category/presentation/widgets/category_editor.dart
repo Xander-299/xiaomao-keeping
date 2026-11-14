@@ -346,15 +346,15 @@ class _CategoryEditorState extends ConsumerState<_CategoryEditor> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
                     '父分类',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color: p.ink2,
+                      color: p.ink,
                     ),
                   ),
                 ),
@@ -514,7 +514,7 @@ class _SheetRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         child: Row(
           children: <Widget>[
             leading,
@@ -523,7 +523,7 @@ class _SheetRow extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  fontSize: 14.5,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                   color: p.ink,
                 ),
