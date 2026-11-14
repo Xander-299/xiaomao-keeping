@@ -11,6 +11,7 @@ import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/network/cloud_sync_gate.dart';
 import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/network/sync_endpoints.dart';
+import 'package:yanxin/core/providers/account_scope.dart';
 import 'package:yanxin/core/security/token_store.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/data/repositories/app_meta_repository.dart';
@@ -155,8 +156,9 @@ void main() {
       expect(state.email, 'me@example.com');
       expect(state.session?.accessToken, 'access-1');
 
+      // P6.5：token 落在该邮箱自己的槽里
       final AuthSession? saved = AuthSession.tryParse(
-        await store.read(kSyncSessionKey),
+        await store.read(sessionKeyFor('me@example.com')),
       );
       expect(saved?.refreshToken, 'refresh-1');
       expect(await store.read(kSyncEmailKey), 'me@example.com');
@@ -284,15 +286,15 @@ void main() {
 
       await h.container.read(authControllerProvider.notifier).signOut();
 
-      expect(await store.read(kSyncSessionKey), isNull);
-      expect(
-        h.container.read(authControllerProvider).value?.signedIn,
-        isFalse,
-      );
-      // 退出请求带的是 refresh token（服务端只认这个）
-      expect(jsonDecode(transport.requests.single.body!), <String, Object?>{
-        'refreshToken': 'refresh-old',
-      });
+      // P6.5（用户 2026-11-14 裁定）：退出**保留 token**，只回未登录视图
+      expect(await store.read(sessionKeyFor('old@example.com')), isNotNull);
+      final AuthState after =
+          h.container.read(authControllerProvider).value!;
+      expect(after.signedIn, isFalse);
+      expect(after.accounts.map((SavedAccount a) => a.email),
+          contains('old@example.com'));
+      // 退出不再打网络（token 留着，下次点一下就能回来）
+      expect(transport.requests, isEmpty);
       // 邮箱保留，方便下次登录预填
       expect(await store.read(kSyncEmailKey), 'old@example.com');
     });

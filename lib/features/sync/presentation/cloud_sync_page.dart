@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:yanxin/core/network/cloud_sync_gate.dart';
 import 'package:yanxin/core/network/sync_api.dart';
+import 'package:yanxin/core/providers/account_scope.dart';
 import 'package:yanxin/core/providers/data_epoch.dart';
 import 'package:yanxin/core/security/token_store.dart';
 import 'package:yanxin/core/theme/toon.dart';
@@ -22,6 +23,7 @@ import 'package:yanxin/features/ledger/application/ledger_controller.dart';
 import 'package:yanxin/features/ledger/presentation/dashboard/dashboard_config_controller.dart';
 import 'package:yanxin/features/settings/application/theme_controller.dart';
 import 'package:yanxin/features/stats/application/stats_controller.dart';
+import 'package:yanxin/features/sync/application/account_switch.dart';
 import 'package:yanxin/features/sync/application/auth_controller.dart';
 import 'package:yanxin/features/sync/application/sync_conflicts.dart';
 import 'package:yanxin/features/sync/application/sync_engine.dart';
@@ -49,6 +51,9 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
   Timer? _cooldownTimer;
   int _cooldown = 0;
   bool _busy = false;
+
+  /// 有已保存账号时默认展示账号列表；点「使用其他账号」才展开邮箱表单。
+  bool _showEmailForm = false;
 
   @override
   void initState() {
@@ -338,11 +343,224 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(0, 14, 0, 24),
         children: <Widget>[
-          if (!auth.signedIn) ..._signedOutForm(p),
+          if (!auth.signedIn)
+            ...(auth.accounts.isEmpty || _showEmailForm
+                ? _signedOutForm(p)
+                : _accountPicker(p, auth)),
           if (auth.signedIn) ..._signedInPanel(p, auth, enabled),
         ],
       ),
     );
+  }
+
+  // ── 多账号（P6.5）：已保存账号列表 / 切号 / 移除 ─────────────────────
+
+  List<Widget> _accountPicker(ToonPalette p, AuthState auth) {
+    return <Widget>[
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Text(
+          '选择账号',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: p.ink,
+          ),
+        ),
+      ),
+      const SizedBox(height: 4),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Text(
+          '切号会先把当前账号备份到云端，再把所选账号的数据装回本机。',
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            color: p.ink2,
+          ),
+        ),
+      ),
+      const SizedBox(height: 10),
+      for (final SavedAccount account in auth.accounts)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+          child: ToonCard(
+            padding: EdgeInsets.zero,
+            child: InkWell(
+              key: ValueKey<String>('account-${account.email}'),
+              borderRadius: BorderRadius.circular(18),
+              onTap: () => _switchTo(account),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            account.email,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            account.lastUsedAt == 0
+                                ? '未使用过'
+                                : '上次使用 ${_stamp(DateTime.fromMillisecondsSinceEpoch(account.lastUsedAt))}',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: p.ink2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      key: ValueKey<String>('account-remove-${account.email}'),
+                      tooltip: '移除账号',
+                      icon: Icon(Icons.close_rounded, size: 18, color: p.ink2),
+                      onPressed: () => _removeAccount(account),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: ToonButton(
+          key: const ValueKey<String>('cloudSyncUseOther'),
+          label: '使用其他账号',
+          kind: ToonButtonKind.ghost,
+          block: true,
+          onPressed: () => setState(() => _showEmailForm = true),
+        ),
+      ),
+      const SizedBox(height: 10),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Text(
+          '移除账号只清掉本机的登录状态，账本会保留（同一邮箱再登录就回来）。',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: p.ink2,
+          ),
+        ),
+      ),
+    ];
+  }
+
+  Future<void> _switchTo(SavedAccount account) async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('切换到该账号？'),
+        content: Text(
+          '会先把当前账号的数据备份到云端，再把 ${account.email} 的数据装回本机。\n'
+          '过程中不要退出 App。',
+        ),
+        actions: <Widget>[
+          ToonButton(
+            label: '取消',
+            kind: ToonButtonKind.ghost,
+            small: true,
+            onPressed: () => Navigator.of(ctx).pop(false),
+          ),
+          ToonButton(
+            label: '切换',
+            small: true,
+            onPressed: () => Navigator.of(ctx).pop(true),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    final ValueNotifier<AccountSwitchStage> stage =
+        ValueNotifier<AccountSwitchStage>(AccountSwitchStage.backingUp);
+    unawaited(showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('正在切换账号'),
+          content: ValueListenableBuilder<AccountSwitchStage>(
+            valueListenable: stage,
+            builder: (BuildContext context, AccountSwitchStage value, Widget? _) =>
+                Text(_stageText(value)),
+          ),
+        ),
+      ),
+    ));
+
+    String? failure;
+    try {
+      await ref
+          .read(accountSwitcherProvider)
+          .switchTo(account.email, onStage: (AccountSwitchStage s) => stage.value = s);
+    } on Object catch (e) {
+      failure = _describe(e);
+    } finally {
+      stage.dispose();
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
+    if (!mounted) return;
+    setState(() => _showEmailForm = false);
+    if (failure != null) _toast('切换失败：$failure');
+  }
+
+  String _stageText(AccountSwitchStage stage) => switch (stage) {
+    AccountSwitchStage.backingUp => '正在备份当前账号…',
+    AccountSwitchStage.switching => '正在切换账号…',
+    AccountSwitchStage.restoring => '正在下载该账号的云端备份…',
+    AccountSwitchStage.pulling => '正在补齐云端改动…',
+  };
+
+  Future<void> _removeAccount(SavedAccount account) async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('移除这个账号？'),
+        content: Text(
+          '${account.email}\n\n'
+          '云端数据不会被删除；本机属于它的账本会保留但隐藏，'
+          '下次用同一邮箱登录就会回来。',
+        ),
+        actions: <Widget>[
+          ToonButton(
+            label: '取消',
+            kind: ToonButtonKind.ghost,
+            small: true,
+            onPressed: () => Navigator.of(ctx).pop(false),
+          ),
+          ToonButton(
+            label: '移除',
+            kind: ToonButtonKind.danger,
+            small: true,
+            onPressed: () => Navigator.of(ctx).pop(true),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await ref
+        .read(authControllerProvider.notifier)
+        .removeAccount(account.email);
+    if (!mounted) return;
+    setState(() {
+      if (ref.read(authControllerProvider).value?.accounts.isEmpty ?? false) {
+        _showEmailForm = false;
+      }
+    });
   }
 
   List<Widget> _signedOutForm(ToonPalette p) => <Widget>[

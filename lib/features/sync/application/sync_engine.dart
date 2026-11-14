@@ -235,14 +235,79 @@ class SyncEngine {
     );
   }
 
+  /// 只拉不推，循环到 `hasMore=false`（P6.5 D6：切号 / 新账号首次落地）。
+  ///
+  /// 与 `syncNow` 的区别只有两点：不 push；**不吃 10 页上限**
+  /// （首次把整个账号的历史搬下来，2000 条很容易不够）。
+  /// 安全上限 200 页 = 4 万条，防死循环。
+  Future<SyncResult> bootstrapPull() async {
+    final AuthState? auth = _ref.read(authControllerProvider).value;
+    if (auth?.signedIn != true) {
+      throw const SyncApiException('unauthorized', statusCode: 401);
+    }
+    final String email = auth?.email ?? 'local';
+    final db = _ref.read(appDatabaseProvider);
+    final meta = _ref.read(appMetaRepositoryProvider);
+    final api = _ref.read(syncApiProvider);
+
+    int cursor = int.tryParse(await meta.get(_cursorKey(email)) ?? '') ?? 0;
+    int pulled = 0;
+    int skipped = 0;
+    await _ref.read(authControllerProvider.notifier).authorized((
+      String token,
+    ) async {
+      bool hasMore = true;
+      int guard = 0;
+      while (hasMore && guard++ < 200) {
+        final SyncPullResult page = await api.pullChanges(
+          accessToken: token,
+          since: cursor,
+        );
+        for (final SyncChange change in page.changes) {
+          if (await _apply(db, change)) {
+            pulled++;
+          } else {
+            skipped++;
+          }
+        }
+        cursor = page.cursor;
+        hasMore = page.hasMore;
+        await meta.set(_cursorKey(email), '$cursor');
+      }
+    });
+
+    final DateTime now = DateTime.now();
+    await meta.set(_syncLastAtKey(email), '${now.millisecondsSinceEpoch}');
+    _ref.read(dataEpochProvider.notifier).bump();
+    return SyncResult(
+      at: now,
+      pushed: 0,
+      pulled: pulled,
+      conflicts: 0,
+      skipped: skipped,
+    );
+  }
+
   // ── 上行：收集 dirty 行 ─────────────────────────────────────────────
 
   Future<List<SyncChange>> _collectDirty(AppDatabase db) async {
     final List<SyncChange> out = <SyncChange>[];
 
-    final books = await (db.select(
-      db.books,
-    )..where((t) => t.dirty.equals(1))).get();
+    // P6.5：只推**当前账号**名下的账本与其子数据。
+    // 不隔离就会把 A 的账推给 B 的云端（数据事故，SPEC-P6.5 §6 风险 3）。
+    final String? email = await _accountEmail();
+    if (email == null) return out;
+    final List<String> bookIds = <String>[
+      for (final Book b in await (db.select(db.books)
+            ..where((t) => t.ownerId.equals(email)))
+          .get())
+        b.id,
+    ];
+    if (bookIds.isEmpty) return out;
+
+    final books = await (db.select(db.books)
+          ..where((t) => t.dirty.equals(1) & t.ownerId.equals(email)))
+        .get();
     for (final Book row in books) {
       out.add(
         SyncChange(
@@ -258,7 +323,7 @@ class SyncEngine {
 
     final accounts = await (db.select(
       db.accounts,
-    )..where((t) => t.dirty.equals(1))).get();
+    )..where((t) => t.dirty.equals(1) & t.bookId.isIn(bookIds))).get();
     for (final Account row in accounts) {
       out.add(
         SyncChange(
@@ -274,7 +339,7 @@ class SyncEngine {
 
     final categories = await (db.select(
       db.categories,
-    )..where((t) => t.dirty.equals(1))).get();
+    )..where((t) => t.dirty.equals(1) & t.bookId.isIn(bookIds))).get();
     for (final Category row in categories) {
       out.add(
         SyncChange(
@@ -290,7 +355,7 @@ class SyncEngine {
 
     final transactions = await (db.select(
       db.transactions,
-    )..where((t) => t.dirty.equals(1))).get();
+    )..where((t) => t.dirty.equals(1) & t.bookId.isIn(bookIds))).get();
     for (final TxRow row in transactions) {
       out.add(
         SyncChange(
@@ -306,7 +371,7 @@ class SyncEngine {
 
     final budgets = await (db.select(
       db.budgets,
-    )..where((t) => t.dirty.equals(1))).get();
+    )..where((t) => t.dirty.equals(1) & t.bookId.isIn(bookIds))).get();
     for (final BudgetRow row in budgets) {
       out.add(
         SyncChange(
@@ -330,6 +395,15 @@ class SyncEngine {
   }
 
   // ── 上行：推送成功把 dirty 置 0（updatedAt 变了就保持 dirty）─────────
+
+  /// 当前账号邮箱（未登录 = null；未登录时不收集任何上行）。
+  Future<String?> _accountEmail() async {
+    try {
+      return await _ref.read(bookRepositoryProvider).activeAccountEmail();
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// 变更的唯一键：同一实体的同一 id（跨表同名 id 不算同一行）。
   static String _changeKey(SyncChange change) => '${change.entity}/${change.id}';
@@ -438,7 +512,12 @@ class SyncEngine {
       );
       return true;
     }
-    final Book row = Book.fromJson(change.payload);
+    final Book fromServer = Book.fromJson(change.payload);
+    // 旧客户端推上来的账本没有归属：落地时补成当前账号，否则它会变成「谁都不属于」。
+    final String? email = await _accountEmail();
+    final Book row = (fromServer.ownerId == null && email != null)
+        ? fromServer.copyWith(ownerId: Value<String?>(email))
+        : fromServer;
     await db
         .into(db.books)
         .insertOnConflictUpdate(
