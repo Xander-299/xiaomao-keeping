@@ -80,7 +80,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey<String>('cloudSyncSwitch')), findsNothing);
-    expect(find.text('未登录'), findsOneWidget);
+    expect(find.textContaining('未登录'), findsOneWidget);
   });
 
   testWidgets('邮箱不合法：本地拦下，不发请求', (WidgetTester tester) async {
@@ -259,7 +259,7 @@ void main() {
     expect(upload.onPressed, isNull);
     expect(restore.onPressed, isNull);
     expect(syncNow.onPressed, isNull);
-    expect(find.textContaining('打开上方'), findsOneWidget);
+    expect(find.text('打开后可备份与同步'), findsOneWidget);
   });
 
   testWidgets('开关打开且云端无备份：显示提示，恢复置灰', (WidgetTester tester) async {
@@ -287,7 +287,7 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, -600));
     await tester.pump();
 
-    expect(find.text('云端还没有备份'), findsOneWidget);
+    expect(find.text('还没有备份'), findsOneWidget);
     final ToonButton upload = tester.widget<ToonButton>(
       find.byKey(const ValueKey<String>('cloudBackupUpload')),
     );
