@@ -103,7 +103,38 @@ class _YanxinAppState extends ConsumerState<YanxinApp> {
       ),
       GoRoute(path: '/books', builder: (_, _) => const BookManagePage()),
       GoRoute(path: '/import', builder: (_, _) => const ImportPage()),
-      GoRoute(path: '/month-picker', builder: (_, _) => const MonthPickerPage()),
+      // 月份选择：从右侧滑入（滚动），不再用 Material 默认的淡入/缩放。
+      GoRoute(
+        path: '/month-picker',
+        pageBuilder: (BuildContext context, GoRouterState state) =>
+            CustomTransitionPage<void>(
+              key: state.pageKey,
+              child: const MonthPickerPage(),
+              transitionDuration: const Duration(milliseconds: 260),
+              reverseTransitionDuration: const Duration(milliseconds: 220),
+              transitionsBuilder: (
+                BuildContext context,
+                Animation<double> animation,
+                Animation<double> secondaryAnimation,
+                Widget child,
+              ) {
+                return SlideTransition(
+                  position:
+                      Tween<Offset>(
+                        begin: const Offset(0.18, 0),
+                        end: Offset.zero,
+                      ).animate(
+                        CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.easeOutCubic,
+                          reverseCurve: Curves.easeInCubic,
+                        ),
+                      ),
+                  child: child,
+                );
+              },
+            ),
+      ),
       GoRoute(path: '/stats', builder: (_, _) => const StatsPage()),
       GoRoute(
         path: '/reports',
