@@ -199,11 +199,9 @@ class _MonthPagerState extends State<MonthPager>
     if (p <= 0.001 || incoming == null) return widget.current;
 
     final double w = _width;
-    // 两页之间的接缝：当前页的尾边
-    final double seam = (1 - p) * w;
-    // 阴影跟着位移走：两端淡、中间浓，翻到一半最像纸
-    final double shade = math.sin(p * math.pi);
-    const double band = 26;
+    // ⚠️ 接缝上不要画阴影：两页都是纸色，一条 10% 黑的渐变带在**浅色**模式下
+    // 会在中点留下一条灰线（深色模式看不出来）。要保留「翻起来」的层次感就加
+    // 在两页各自的边缘上，别横跨接缝 —— 2026-11-14 用户明确要求去掉。
 
     return ClipRect(
       child: Stack(
@@ -229,31 +227,6 @@ class _MonthPagerState extends State<MonthPager>
             child: Transform.translate(
               offset: Offset(dir * (1 - p) * w, 0),
               child: incoming,
-            ),
-          ),
-          // 翻起那一页投在下一页上的软阴影
-          Positioned(
-            top: 0,
-            bottom: 0,
-            left: dir > 0 ? seam : seam - band,
-            width: band,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: dir > 0
-                        ? Alignment.centerLeft
-                        : Alignment.centerRight,
-                    end: dir > 0
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
-                    colors: <Color>[
-                      Color.fromRGBO(0, 0, 0, 0.10 * shade),
-                      const Color(0x00000000),
-                    ],
-                  ),
-                ),
-              ),
             ),
           ),
         ],
