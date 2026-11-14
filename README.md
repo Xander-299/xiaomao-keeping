@@ -62,19 +62,19 @@
 | 版本 | 适用设备 | 大小 | 下载 |
 |---|---|---|---|
 | **arm64-v8a**（推荐） | 主流安卓手机（绝大多数） | 39.5 MB | [下载][apk-arm64] |
-| **armeabi-v7a** | 32 位 ARM 老机型 | 34.2 MB | [下载][apk-armv7] |
-| **x86_64** | 模拟器 / Intel 设备 | 41.1 MB | [下载][apk-x64] |
+| **armeabi-v7a** | 32 位 ARM 老机型 | 34.3 MB | [下载][apk-armv7] |
+| **x86_64** | 模拟器 / Intel 设备 | 41.2 MB | [下载][apk-x64] |
 
-- 版本 **0.8.8**（日历翻月跟手翻页 + 账本双向同步（实验）+ 设置/云同步/分类弹窗三处 UI 收口；三包同版本、同一把正式签名 `CN=yanxin`）
+- 版本 **0.8.9**（云同步自动触发（仅 WiFi）+ 冲突可回滚 + 外观/首页布局跟随账号 + 冷启动自动备份；三包同版本、同一把正式签名 `CN=yanxin`）
   · 最低 **Android 7.0** · 全部包见 [Releases][releases]
 - 按手机架构选一个即可：不确定就选 **arm64-v8a**（近五年的手机都是它）
 - 装好后首次会弹 7 页新手引导；卸载即彻底删除数据（无云端），想留档请先「我的 → 数据导出」
 
 > ⚠️ 未上架任何应用商店。系统提示「未知来源」时，允许**当前这个文件管理器**安装即可。
 
-[apk-arm64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.8/yanxin-v0.8.8-arm64-v8a-release.apk
-[apk-armv7]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.8/yanxin-v0.8.8-armeabi-v7a-release.apk
-[apk-x64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.8/yanxin-v0.8.8-x86_64-release.apk
+[apk-arm64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.9/yanxin-v0.8.9-arm64-v8a-release.apk
+[apk-armv7]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.9/yanxin-v0.8.9-armeabi-v7a-release.apk
+[apk-x64]: https://github.com/Xander-299/xiaomao-keeping/releases/download/v0.8.9/yanxin-v0.8.9-x86_64-release.apk
 [releases]: https://github.com/Xander-299/xiaomao-keeping/releases
 
 ---
@@ -258,9 +258,9 @@ flutter build apk --release --target-platform android-arm,android-arm64,android-
 
 | 维度 | 数据 |
 |---|---|
-| 代码量 | Dart **183 个源文件 / 39,718 行**（含 `part`）· Kotlin **10 个文件 / 2,042 行** |
-| 测试 | **96 个测试文件** · 857 处 `test()` / `testWidgets()`（CI 实跑 **929 passed / 6 skipped**） |
-| 迭代 | **349 次提交** · **25 个版本 tag**（`v0.7.1` – `v0.7.17`、`v0.8.1` – `v0.8.8`） |
+| 代码量 | Dart **190 个源文件 / 41,582 行**（含 `part`）· Kotlin **11 个文件 / 2,118 行** |
+| 测试 | **100 个测试文件** · 875 处 `test()` / `testWidgets()`（CI 实跑 **947 passed / 6 skipped**） |
+| 迭代 | **356 次提交** · **26 个版本 tag**（`v0.7.1` – `v0.7.17`、`v0.8.1` – `v0.8.9`） |
 | 验证环境 | MuMu 模拟器 + **Redmi K50 真机**（Android 14 / HyperOS，adb 全包走查）|
 | 性能基线 | 冷启动 **613.8 ms** · 热启动 **82.4 ms** · 常驻 **43.3 MB** · release APK（arm64）**40.9 MB** |
 
