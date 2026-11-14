@@ -266,6 +266,9 @@ class CalendarController extends Notifier<CalendarState> {
       await _loadDay();
       if (_disposed) return;
       await _loadMonth();
+      if (_disposed) return;
+      // 相邻月的预览缓存跟着一起作废：刚改过账，翻页预览不能还是旧数字
+      ref.invalidate(monthAggPreviewProvider);
     } finally {
       _busy = false;
       if (_disposed) {
@@ -307,7 +310,18 @@ class CalendarController extends Notifier<CalendarState> {
       m = 1;
       y++;
     }
-    state = s.copyWith(year: y, month: m);
+    // 翻页时相邻月的预览数据已经在手上了，先拿它顶上：
+    // 否则换月那一帧会拿上个月的金额去配新月份的网格，闪一下。
+    final MonthAgg? preview = ref
+        .read(monthAggPreviewProvider((year: y, month: m)))
+        .value;
+    state = s.copyWith(
+      year: y,
+      month: m,
+      monthAgg: preview == null
+          ? const AsyncValue<MonthAgg>.loading()
+          : AsyncValue<MonthAgg>.data(preview),
+    );
     await _loadMonth();
   }
 
@@ -356,6 +370,24 @@ class CalendarController extends Notifier<CalendarState> {
     return result;
   }
 }
+
+/// 相邻月的聚合（**只给翻页预览用**，不进 [CalendarState]）。
+///
+/// 跟手翻页要求「另一页」在手指还没松开时就已经有日标注和月汇总；
+/// 等翻完再去查，滑到一半会是一张空网格，很掉价。
+///
+/// 刻意与主链的 `state.monthAgg` 分开：预览是**旁路**数据，不该参与
+/// `CalendarController` 的 busy / 竞态状态机，也不该影响「翻月不闪转圈」的口径。
+/// 写操作后由 [CalendarController.refresh] 整体 invalidate，保证不会拿旧数字预览。
+final monthAggPreviewProvider =
+    FutureProvider.family<MonthAgg, ({int year, int month})>((ref, key) async {
+  final String? bookId = await ref.watch(activeBookIdProvider.future);
+  if (bookId == null) return MonthAgg.empty;
+  final List<TxRow> rows = await ref
+      .watch(transactionRepositoryProvider)
+      .listByMonth(bookId, key.year, key.month);
+  return MonthAgg.of(rows, year: key.year, month: key.month);
+});
 
 /// 某一年里「每个月有账的日期集合」：`{月: {日, ...}}`。
 ///
