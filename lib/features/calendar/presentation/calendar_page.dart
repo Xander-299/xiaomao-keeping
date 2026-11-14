@@ -94,18 +94,22 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
                             children: <Widget>[...previous, ?current],
                           ),
                         ),
+                    // 翻月 = **横向滚动**（不再叠淡入淡出）：
+                    // 新页从翻月方向滑入，旧页向反方向滑出，像翻一叠月历。
                     transitionBuilder:
                         (Widget child, Animation<double> animation) {
-                          return FadeTransition(
-                            opacity: animation,
-                            child: SlideTransition(
-                              position:
-                                  Tween<Offset>(
-                                    begin: Offset(0.12 * _dir, 0),
-                                    end: Offset.zero,
-                                  ).animate(animation),
-                              child: child,
-                            ),
+                          return SlideTransition(
+                            position:
+                                Tween<Offset>(
+                                  begin: Offset(0.18 * _dir, 0),
+                                  end: Offset.zero,
+                                ).animate(
+                                  CurvedAnimation(
+                                    parent: animation,
+                                    curve: Curves.easeOutCubic,
+                                  ),
+                                ),
+                            child: child,
                           );
                         },
                     child: _MonthBlock(
