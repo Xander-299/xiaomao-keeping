@@ -48,9 +48,6 @@ concurrency:
   group: cd-${{ github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
-env:
-  PUB_HOSTED_URL: https://pub.flutter-io.cn
-
 jobs:
   # ─────────────────────────── 1. 前置校验 ───────────────────────────
   guard:
@@ -110,31 +107,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      - name: Set up Flutter env
+        uses: ./.github/actions/flutter-env
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.2'
-          channel: stable
-          cache: true
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Ensure Android SDK 36 + CMake
-        run: |
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ -x "$SDKMANAGER" ]; then
-            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-            "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" > /dev/null
-          else
-            echo "::warning::找不到 sdkmanager，跳过补装（依赖 runner 预装）"
-          fi
+      - name: Set up Android build env
+        uses: ./.github/actions/android-build-env
 
       - name: 注入正式签名
         env:
@@ -162,12 +139,6 @@ jobs:
           EOF
           chmod 600 android/key.properties
           echo "✓ keystore 与 key.properties 就位（$(du -h "$KEYSTORE" | cut -f1)）"
-
-      - name: Lower Gradle heap for runner
-        run: sed -i 's/-Xmx8G -XX:MaxMetaspaceSize=4G/-Xmx3G -XX:MaxMetaspaceSize=1G/' android/gradle.properties
-
-      - name: Resolve dependencies
-        run: flutter pub get
 
       - name: Build split APKs
         run: flutter build apk --release --split-per-abi --no-pub
@@ -340,7 +311,6 @@ jobs:
       - name: 关掉历史的失败 issue
         # 发布已经成功了，这一步只是收尾：它失败不该把整个 CD 标红
         continue-on-error: true
-        if: ${{ github.event_name == 'push' || github.event.inputs.dry_run != 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
