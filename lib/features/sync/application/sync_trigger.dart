@@ -42,10 +42,21 @@ class SyncTrigger {
   static const Duration backupInterval = Duration(hours: 24);
 
   /// 冷启动 / 回前台调用；不满足条件直接返回 null（**不抛异常**）。
+  ///
+  /// ⚠️ 必须 `await` 两个 AsyncNotifier 的 `.future`：冷启动首帧时它们还是
+  /// `AsyncLoading`，直接读 `.value` 会得到 null → 自动同步**静默不跑**
+  /// （真机 v0.8.8 冒烟踩到：`sync_last_attempt` 一直不出现）。
   Future<SyncResult?> maybeSync({required String reason}) async {
-    final AuthState? auth = _ref.read(authControllerProvider).value;
-    if (auth?.signedIn != true) return null;
-    if (_ref.read(cloudSyncEnabledProvider).value != true) return null;
+    final AuthState auth;
+    final bool enabled;
+    try {
+      auth = await _ref.read(authControllerProvider.future);
+      enabled = await _ref.read(cloudSyncEnabledProvider.future);
+    } catch (_) {
+      return null;
+    }
+    if (!auth.signedIn) return null;
+    if (!enabled) return null;
     final SyncStatusState? status = _ref.read(syncStatusProvider).value;
     if (status?.syncing == true) return null;
 
@@ -53,7 +64,7 @@ class SyncTrigger {
     if (!_ref.read(cloudSyncGateProvider).allows(_syncProbe())) return null;
 
     final AppMetaRepository meta = _ref.read(appMetaRepositoryProvider);
-    final String email = auth?.email ?? 'local';
+    final String email = auth.email ?? 'local';
     final String key = '$kSyncLastAttemptKeyPrefix$email';
     final int now = DateTime.now().millisecondsSinceEpoch;
     final int? lastAttempt = int.tryParse((await meta.get(key)) ?? '');
@@ -87,9 +98,16 @@ class SyncTrigger {
   /// 为什么要有这一步：增量同步≠备份。同步只保证「每行都是最新的」，一旦某笔被误删
   /// 并随同步传播出去，云端也一起没了；真正的保险是全量备份（P6.3）。
   Future<void> maybeAutoBackup() async {
-    final AuthState? auth = _ref.read(authControllerProvider).value;
-    if (auth?.signedIn != true) return;
-    if (_ref.read(cloudSyncEnabledProvider).value != true) return;
+    final AuthState auth;
+    final bool enabled;
+    try {
+      auth = await _ref.read(authControllerProvider.future);
+      enabled = await _ref.read(cloudSyncEnabledProvider.future);
+    } catch (_) {
+      return;
+    }
+    if (!auth.signedIn) return;
+    if (!enabled) return;
     if (!_ref.read(cloudSyncGateProvider).allows(_backupProbe())) return;
 
     try {
