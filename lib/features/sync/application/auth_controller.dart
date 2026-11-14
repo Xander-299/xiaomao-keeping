@@ -12,14 +12,19 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/network/cloud_sync_gate.dart';
 import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/network/sync_endpoints.dart';
+import 'package:yanxin/core/providers/account_scope.dart';
 import 'package:yanxin/core/security/token_store.dart';
+import 'package:yanxin/data/providers/book_providers.dart';
 import 'package:yanxin/data/providers/database.dart';
+import 'package:yanxin/data/repositories/app_meta_repository.dart';
 import 'package:yanxin/features/sync/application/backup_bytes.dart';
 
-/// 登录态在安全存储里的键（值 = [AuthSession.toStorageJson]）。
+/// **旧版**单槽登录态的键（P6.2 起）。P6.5 起改为每账号一个槽
+/// （[sessionKeyFor] = `sync_session:<email>`），这个常量只用于**迁移**与兼容测试。
 const String kSyncSessionKey = 'sync_session';
 
 /// 上次登录的邮箱（**不是**敏感凭据；用于下次登录预填）。
@@ -57,18 +62,34 @@ final syncApiProvider = Provider<SyncApi>(
 
 /// 当前登录态。
 class AuthState {
-  const AuthState({this.session, this.email});
+  const AuthState({
+    this.session,
+    this.email,
+    this.accounts = const <SavedAccount>[],
+  });
 
   final AuthSession? session;
 
   /// 上次登录 / 当前登录的邮箱（未登录时也可能有值，用于预填）。
   final String? email;
 
+  /// 已保存账号（登录过就在列表里，按最近使用排序）。
+  final List<SavedAccount> accounts;
+
   bool get signedIn => session != null;
 
-  AuthState copyWith({AuthSession? session, String? email}) => AuthState(
-    session: session ?? this.session,
+  /// 这台手机**用过云同步**吗？—— 「未登录是否空态」的判据（SPEC-P6.5 D3）。
+  bool get hasSavedAccounts => accounts.isNotEmpty;
+
+  AuthState copyWith({
+    AuthSession? session,
+    String? email,
+    List<SavedAccount>? accounts,
+    bool clearSession = false,
+  }) => AuthState(
+    session: clearSession ? null : (session ?? this.session),
     email: email ?? this.email,
+    accounts: accounts ?? this.accounts,
   );
 }
 
@@ -116,14 +137,62 @@ class AuthController extends AsyncNotifier<AuthState> {
   @override
   Future<AuthState> build() async {
     final TokenStore store = ref.watch(tokenStoreProvider);
+    final meta = ref.read(appMetaRepositoryProvider);
+    String? lastEmail;
+    List<SavedAccount> accounts = const <SavedAccount>[];
     try {
-      final String? raw = await store.read(kSyncSessionKey);
-      final String? email = await store.read(kSyncEmailKey);
-      return AuthState(session: AuthSession.tryParse(raw), email: email);
+      // 旧版把邮箱写在 Keystore（`_save` 里），新版也写一份进 schema_meta；
+      // 迁移时两边都要看，否则 v0.8.9 升级上来的用户会被当成「没登录过」。
+      lastEmail = (await store.read(kSyncEmailKey)) ??
+          await meta.get(kSyncEmailKey);
+      accounts = parseSavedAccounts(await meta.get(kSyncAccountsKey));
+      if (accounts.isEmpty) {
+        accounts = await _migrateLegacySlot(store, meta, lastEmail);
+      }
+      final String? active = (await meta.get(kActiveAccountKey))?.trim();
+      final String? current =
+          (active != null && active.isNotEmpty) ? active : null;
+      if (current == null) {
+        // 未登录（可能是「退出但保留 token」）：token 不动，只暴露账号列表
+        return AuthState(email: lastEmail, accounts: accounts);
+      }
+      final String? raw = await store.read(sessionKeyFor(current));
+      // 迁移 / 冷启动也要把「账本范围」补齐：老库里的账本 ownerId 为空，
+      // 不绑的话迁移用户一升级就看不到自己的账本（真机 v0.8.9 → P6.5 踩到）。
+      await _applyAccountScope(current);
+      return AuthState(
+        session: AuthSession.tryParse(raw),
+        email: current,
+        accounts: accounts,
+      );
     } on SecureStoreException {
       // 读不出来 = 未登录，不能让一个坏 key 把 App 拦在启动页
-      return const AuthState();
+      return AuthState(email: lastEmail, accounts: accounts);
     }
+  }
+
+  /// P6.2 的单槽 `sync_session` → P6.5 的 `sync_session:<email>`。
+  ///
+  /// 只跑一次（跑完就把旧键删掉、写入 `sync_accounts`）；坏数据按「没有账号」处理。
+  Future<List<SavedAccount>> _migrateLegacySlot(
+    TokenStore store,
+    AppMetaRepository meta,
+    String? email,
+  ) async {
+    if (email == null || email.trim().isEmpty) return const <SavedAccount>[];
+    final String? legacy = await store.read(kSyncSessionKey);
+    if (legacy == null || legacy.isEmpty) return const <SavedAccount>[];
+    await store.write(sessionKeyFor(email), legacy);
+    await store.delete(kSyncSessionKey);
+    final List<SavedAccount> accounts = <SavedAccount>[
+      SavedAccount(
+        email: email.trim(),
+        lastUsedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+    ];
+    await meta.set(kSyncAccountsKey, encodeSavedAccounts(accounts));
+    await meta.set(kActiveAccountKey, email.trim());
+    return accounts;
   }
 
   /// 发验证码。
@@ -144,31 +213,38 @@ class AuthController extends AsyncNotifier<AuthState> {
         .read(syncApiProvider)
         .verify(normalized, code.trim());
     await _save(session, normalized);
+    await _enterAccount(normalized);
   }
 
-  /// 退出登录：**本地优先** —— 即使服务端吊销失败，本机也必须退出去。
+  /// 退出登录：**只回到未登录视图，保留 token**（用户 2026-11-14 裁定）。
+  ///
+  /// 这样再点一次该账号就能回来，不用重新收验证码。
+  /// 想彻底清掉某个账号的登录态，用 [removeAccount]。
   Future<void> signOut() async {
-    final AuthSession? session = state.value?.session;
-    if (session != null) {
-      try {
-        await ref.read(syncApiProvider).logout(
-          accessToken: session.accessToken,
-          refreshToken: session.refreshToken,
-        );
-      } on Object {
-        // 网络不通 / 服务器没配置 / 401 都不该阻止用户退出
-      }
+    final AuthState current = state.value ?? const AuthState();
+    try {
+      await ref.read(appMetaRepositoryProvider).remove(kActiveAccountKey);
+    } catch (_) {
+      // 写失败也要把内存态切走：用户点了退出就得退
     }
-    await _clearSession();
+    state = AsyncData(current.copyWith(clearSession: true));
   }
 
   /// 注销账号：云端硬删成功后才清本机（失败要把异常交给 UI）。
+  ///
+  /// 本地**账本保留但隐藏**（与「移除账号」同口径）：云端已经没了，
+  /// 但用户可能还想把本机这份导出去，不能替他删。
   Future<void> deleteAccount() async {
+    final String? email = state.value?.email;
     await _withAuth(
       (String token) => ref.read(syncApiProvider).deleteAccount(token),
     );
     await ref.read(cloudSyncEnabledProvider.notifier).setEnabled(false);
-    await _clearSession();
+    if (email != null) {
+      await removeAccount(email);
+    } else {
+      await _clearSession();
+    }
   }
 
   // ── 云备份（P6.3）────────────────────────────────────────────────
@@ -234,19 +310,126 @@ class AuthController extends AsyncNotifier<AuthState> {
   Future<void> _save(AuthSession session, String email) async {
     final TokenStore store = ref.read(tokenStoreProvider);
     // token 先落盘：写失败就让登录失败，不能只改内存状态
-    await store.write(kSyncSessionKey, session.toStorageJson());
-    await store.write(kSyncEmailKey, email);
-    state = AsyncData(AuthState(session: session, email: email));
+    await store.write(sessionKeyFor(email), session.toStorageJson());
+    // 两份都写：Keystore 那份是旧版口径，schema_meta 那份给账本层看
+    try {
+      await store.write(kSyncEmailKey, email);
+    } on SecureStoreException {
+      // 兼容旧口径失败不影响登录
+    }
+    await ref.read(appMetaRepositoryProvider).set(kSyncEmailKey, email);
+    state = AsyncData(state.value?.copyWith(session: session, email: email) ??
+        AuthState(session: session, email: email));
+  }
+
+  /// 登录 / 切号成功后的「进入该账号」：写账号列表 + 当前账号 + 账本范围。
+  Future<void> _enterAccount(String email) async {
+    final meta = ref.read(appMetaRepositoryProvider);
+    final DateTime now = DateTime.now();
+    final List<SavedAccount> accounts = <SavedAccount>[
+      for (final SavedAccount a in state.value?.accounts ?? const <SavedAccount>[])
+        if (a.email != email) a,
+      SavedAccount(email: email, lastUsedAt: now.millisecondsSinceEpoch),
+    ]..sort((SavedAccount a, SavedAccount b) => b.lastUsedAt - a.lastUsedAt);
+    await meta.set(kSyncAccountsKey, encodeSavedAccounts(accounts));
+    await meta.set(kActiveAccountKey, email);
+    state = AsyncData(
+      (state.value ?? const AuthState()).copyWith(
+        email: email,
+        accounts: accounts,
+      ),
+    );
+
+    await _applyAccountScope(email);
+  }
+
+  /// 让账本范围与 [email] 对齐：绑定本机账本（若该账号还没有账本）、确保有账本、落 active id。
+  ///
+  /// 失败不抛：账本层异常不能把登录判失败，下一次进 App 再兜。
+  Future<void> _applyAccountScope(String email) async {
+    final books = ref.read(bookRepositoryProvider);
+    try {
+      await books.bindUnownedBooksTo(email);
+      final Book? visible = await books.ensureVisibleBook();
+      final String? active = await books.getActiveBookIdFor(email);
+      if (visible != null && active == null) {
+        await books.setActiveBookIdFor(email, visible.id);
+      }
+    } catch (_) {
+      // 见上
+    }
+    ref.invalidate(activeBookIdProvider);
+    ref.invalidate(bookListProvider);
+  }
+
+  /// 切到另一个已保存账号（不校验 token 是否仍有效 —— 用的时候 401 会续期）。
+  Future<void> switchTo(String email) async {
+    final String normalized = email.trim();
+    final TokenStore store = ref.read(tokenStoreProvider);
+    final String? raw = await store.read(sessionKeyFor(normalized));
+    final AuthSession? session = AuthSession.tryParse(raw);
+    if (session == null) {
+      throw const SyncApiException(
+        'unauthorized',
+        statusCode: 401,
+        message: '这个账号的登录已失效，请重新登录',
+      );
+    }
+    state = AsyncData(
+      (state.value ?? const AuthState()).copyWith(
+        session: session,
+        email: normalized,
+      ),
+    );
+    await _enterAccount(normalized);
+  }
+
+  /// 移除账号：删本地 token + 从列表移除；**账本保留但隐藏**（同邮箱再登录自动恢复）。
+  Future<void> removeAccount(String email) async {
+    final String normalized = email.trim();
+    final TokenStore store = ref.read(tokenStoreProvider);
+    try {
+      await store.delete(sessionKeyFor(normalized));
+    } on SecureStoreException {
+      // 删不掉也继续：至少把它从列表里拿掉
+    }
+    final String? active = (await ref
+            .read(appMetaRepositoryProvider)
+            .get(kActiveAccountKey))
+        ?.trim();
+    final List<SavedAccount> accounts = <SavedAccount>[
+      for (final SavedAccount a in state.value?.accounts ?? const <SavedAccount>[])
+        if (a.email != normalized) a,
+    ];
+    await ref
+        .read(appMetaRepositoryProvider)
+        .set(kSyncAccountsKey, encodeSavedAccounts(accounts));
+    final bool isCurrent = active == normalized;
+    if (isCurrent) {
+      await ref.read(appMetaRepositoryProvider).remove(kActiveAccountKey);
+    }
+    state = AsyncData(
+      (state.value ?? const AuthState()).copyWith(
+        email: isCurrent ? null : state.value?.email,
+        accounts: accounts,
+        clearSession: isCurrent,
+      ),
+    );
+    ref.invalidate(activeBookIdProvider);
   }
 
   Future<void> _clearSession() async {
+    final String? email = state.value?.email;
     final TokenStore store = ref.read(tokenStoreProvider);
-    try {
-      await store.delete(kSyncSessionKey);
-    } on SecureStoreException {
-      // 删不掉也只能当作已退出；下次启动若还能读出来，用户再点一次退出
+    if (email != null) {
+      try {
+        await store.delete(sessionKeyFor(email));
+      } on SecureStoreException {
+        // 删不掉也只能当作已退出
+      }
     }
-    state = AsyncData(AuthState(email: state.value?.email));
+    await ref.read(appMetaRepositoryProvider).remove(kActiveAccountKey);
+    state = AsyncData((state.value ?? const AuthState()).copyWith(clearSession: true));
   }
 }
 

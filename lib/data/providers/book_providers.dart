@@ -27,20 +27,29 @@ class ActiveBookIdController extends AsyncNotifier<String?> {
   @override
   Future<String?> build() async {
     final repo = ref.watch(bookRepositoryProvider);
-    final stored = await repo.getActiveBookId();
-    isFreshInstall = stored == null;
-    if (stored != null) {
-      final book = await repo.getById(stored);
-      if (book != null) return stored;
+    final String? email = await repo.activeAccountEmail();
+    final bool savedAccounts = await repo.hasSavedAccounts();
+    // 空态（P6.5 D3）：曾经登录过、当前又没登录 → 不建账本，等用户选账号
+    if (email == null && savedAccounts) {
+      isFreshInstall = false;
+      return null;
     }
-    final book = await repo.ensureDefaultBook();
-    await repo.setActiveBookId(book.id);
+    final String? stored = await repo.getActiveBookIdFor(email);
+    isFreshInstall = stored == null && !savedAccounts;
+    if (stored != null) {
+      final visible = await repo.listVisible();
+      if (visible.any((Book b) => b.id == stored)) return stored;
+    }
+    final Book? book = await repo.ensureVisibleBook();
+    if (book == null) return null;
+    await repo.setActiveBookIdFor(email, book.id);
     return book.id;
   }
 
-  /// 切换当前账本（持久化）。
+  /// 切换当前账本（持久化到**当前账号**的槽）。
   Future<void> select(String id) async {
-    await ref.read(bookRepositoryProvider).setActiveBookId(id);
+    final repo = ref.read(bookRepositoryProvider);
+    await repo.setActiveBookIdFor(await repo.activeAccountEmail(), id);
     state = AsyncData(id);
   }
 }
@@ -52,7 +61,7 @@ final currentBookProvider = FutureProvider<Book?>((ref) async {
   return ref.watch(bookRepositoryProvider).getById(id);
 });
 
-/// 全部未删除账本。
+/// 当前**可见**的未删除账本（P6.5：按账号过滤；未登录空态时为空列表）。
 final bookListProvider = FutureProvider<List<Book>>(
-  (ref) => ref.watch(bookRepositoryProvider).listAll(),
+  (ref) => ref.watch(bookRepositoryProvider).listVisible(),
 );

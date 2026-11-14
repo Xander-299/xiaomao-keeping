@@ -115,6 +115,12 @@ void main() {
 
   test('pull 到服务端较新的行 → 覆盖本地并置 dirty=0', () async {
     final h = await _harness(<SyncResponse>[
+      // P6.5：登录后账本归当前账号 → 引擎会先 push（本机账本 dirty=1）
+      _json(200, <String, Object?>{
+        'applied': 0,
+        'conflicts': <Object?>[],
+        'cursor': 1,
+      }),
       _json(200, <String, Object?>{
         'changes': <Object?>[
           <String, Object?>{
@@ -201,6 +207,12 @@ void main() {
 
   test('墓碑：pull 到 deleted 行 → 写 deletedAt 且 dirty=0', () async {
     final h = await _harness(<SyncResponse>[
+      // 登录时自动建了账本 → 第一次同步会 push
+      _json(200, <String, Object?>{
+        'applied': 1,
+        'conflicts': <Object?>[],
+        'cursor': 1,
+      }),
       _json(200, <String, Object?>{
         'changes': <Object?>[
           <String, Object?>{

@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/network/sync_api.dart';
+import 'package:yanxin/core/providers/account_scope.dart';
 import 'package:yanxin/core/security/token_store.dart';
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
@@ -185,7 +186,7 @@ void main() {
       find.byKey(const ValueKey<String>('cloudSyncDelete')),
       findsOneWidget,
     );
-    expect(await store.read(kSyncSessionKey), isNotNull);
+    expect(await store.read(sessionKeyFor('me@example.com')), isNotNull);
   });
 
   testWidgets('已登录：拨开关落库', (WidgetTester tester) async {
