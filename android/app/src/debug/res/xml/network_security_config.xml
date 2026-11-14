@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  仅 debug / QA 构建生效：允许访问本机代理（如 adb reverse 到电脑的 127.0.0.1:7890）。
+  release 仍使用 main 的 network_security_config（全局禁明文）。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>
