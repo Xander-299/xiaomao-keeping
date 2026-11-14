@@ -175,8 +175,8 @@ class _BrandTip extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                // 与 pubspec.yaml 的 version 对齐（0.8.8+2008）；改版本号时记得同步这里
-                'v0.8.8',
+                // 与 pubspec.yaml 的 version 对齐（0.8.9+2009）；改版本号时记得同步这里
+                'v0.8.9',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
