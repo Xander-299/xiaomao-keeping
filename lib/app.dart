@@ -110,8 +110,8 @@ class _YanxinAppState extends ConsumerState<YanxinApp> {
             CustomTransitionPage<void>(
               key: state.pageKey,
               child: const MonthPickerPage(),
-              transitionDuration: const Duration(milliseconds: 260),
-              reverseTransitionDuration: const Duration(milliseconds: 220),
+              transitionDuration: const Duration(milliseconds: 300),
+              reverseTransitionDuration: const Duration(milliseconds: 260),
               transitionsBuilder: (
                 BuildContext context,
                 Animation<double> animation,
@@ -121,7 +121,7 @@ class _YanxinAppState extends ConsumerState<YanxinApp> {
                 return SlideTransition(
                   position:
                       Tween<Offset>(
-                        begin: const Offset(0.18, 0),
+                        begin: const Offset(1, 0),
                         end: Offset.zero,
                       ).animate(
                         CurvedAnimation(

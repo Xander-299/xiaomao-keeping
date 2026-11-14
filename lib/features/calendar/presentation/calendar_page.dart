@@ -84,7 +84,7 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
                   // 上半块：网格 + 月汇总。**只有这块跟着月份做过渡** ——
                   // 下半块的账单属于「选中日」，翻月不该动它。
                   AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 240),
+                    duration: const Duration(milliseconds: 280),
                     switchInCurve: Curves.easeOutCubic,
                     switchOutCurve: Curves.easeInCubic,
                     layoutBuilder: (Widget? current, List<Widget> previous) =>
@@ -94,19 +94,19 @@ class _CalendarPageState extends ConsumerState<CalendarPage> {
                             children: <Widget>[...previous, ?current],
                           ),
                         ),
-                    // 翻月 = **横向滚动**（不再叠淡入淡出）：
-                    // 新页从翻月方向滑入，旧页向反方向滑出，像翻一叠月历。
+                    // 翻月 = **整页翻过去**（不是轻微滑动、也不叠淡入淡出）：
+                    // 新页从翻月方向整屏滑入，旧页整屏滑出，像翻一页月历。
                     transitionBuilder:
                         (Widget child, Animation<double> animation) {
                           return SlideTransition(
                             position:
                                 Tween<Offset>(
-                                  begin: Offset(0.18 * _dir, 0),
+                                  begin: Offset(1.0 * _dir, 0),
                                   end: Offset.zero,
                                 ).animate(
                                   CurvedAnimation(
                                     parent: animation,
-                                    curve: Curves.easeOutCubic,
+                                    curve: Curves.easeInOutCubic,
                                   ),
                                 ),
                             child: child,
