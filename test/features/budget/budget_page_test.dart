@@ -12,6 +12,7 @@ import 'package:yanxin/data/repositories/budget_repository.dart';
 import 'package:yanxin/data/repositories/category_repository.dart';
 import 'package:yanxin/features/budget/presentation/budget_page.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
+import 'package:yanxin/ui_kit/app_sheet_header.dart';
 
 import '../../helpers/test_database.dart';
 
@@ -81,5 +82,22 @@ void main() {
       overrides: [appDatabaseProvider.overrideWithValue(db)],
     ).read(ledgerProvider.future);
     expect(find.text('预算 · ${ledger.month} 月'), findsOneWidget);
+  });
+
+  testWidgets('选择分类弹层封顶 60% 屏高（不再整屏盖住）', (WidgetTester tester) async {
+    await _pumpPage(tester);
+
+    await tester.tap(find.text('添加分类预算'));
+    await pumpUntil(tester, find.text('选择分类'));
+
+    final Rect header = tester.getRect(find.byType(AppSheetHeader));
+    final double viewportHeight = tester.view.physicalSize.height /
+        tester.view.devicePixelRatio;
+    // 60% 高 → 弹层顶部至少落在屏幕 35% 以下（留一点安全余量）
+    expect(
+      header.top,
+      greaterThan(viewportHeight * 0.35),
+      reason: '弹层从底部升起，顶部不该贴着屏幕顶（旧实现会占满 100%）',
+    );
   });
 }

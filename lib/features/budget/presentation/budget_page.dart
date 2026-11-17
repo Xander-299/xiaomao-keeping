@@ -20,6 +20,7 @@ import 'package:yanxin/features/ledger/application/budget_metrics.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
 import 'package:yanxin/features/ledger/presentation/widgets/budget_edit_sheet.dart';
 import 'package:yanxin/ui_kit/app_page_state.dart';
+import 'package:yanxin/ui_kit/app_sheet_header.dart';
 
 class BudgetPage extends ConsumerWidget {
   const BudgetPage({super.key});
@@ -148,36 +149,72 @@ class BudgetPage extends ConsumerWidget {
   }
 
   /// 选一个**未归档**的支出分类，再弹金额。
+  ///
+  /// 高度上限 60% 屏高：分类有 10 个一级 + 30 多个二级，不封顶会整屏盖住页面
+  /// （用户 2026-11-17 反馈「几乎占满 100%」）。版式沿用 `AppSheetHeader`（抓手 + 标题）。
   Future<void> _addCategory(BuildContext context, WidgetRef ref) async {
     final List<Category> all = await ref.read(
       categoriesByKindProvider('expense').future,
     );
     if (!context.mounted) return;
+    final double maxHeight = MediaQuery.sizeOf(context).height * 0.6;
     final Category? picked = await showModalBottomSheet<Category>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: context.toon.paper,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(Tok.rXl)),
+      ),
       builder: (BuildContext ctx) {
         final ToonPalette p = ctx.toon;
-        return SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            shrinkWrap: true,
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              const Text(
-                '选择分类',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 8),
-              for (final Category c in all)
-                ListTile(
-                  dense: true,
-                  title: Text(
-                    c.parentId == null ? c.name : '　${c.name}',
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                  trailing: Icon(Icons.chevron_right_rounded, color: p.ink3),
-                  onTap: () => Navigator.of(ctx).pop(c),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
+                child: AppSheetHeader(
+                  title: '选择分类',
+                  subtitle: '一级、二级都能单独设额度',
                 ),
+              ),
+              Flexible(
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                  shrinkWrap: true,
+                  itemCount: all.length,
+                  itemBuilder: (BuildContext _, int i) {
+                    final Category c = all[i];
+                    final bool isChild = c.parentId != null;
+                    return ListTile(
+                      dense: true,
+                      visualDensity: const VisualDensity(vertical: -3),
+                      contentPadding: EdgeInsets.only(
+                        left: isChild ? 32 : 12,
+                        right: 12,
+                      ),
+                      title: Text(
+                        c.name,
+                        style: TextStyle(
+                          fontSize: isChild ? 13.5 : 14.5,
+                          fontWeight: isChild
+                              ? FontWeight.w600
+                              : FontWeight.w700,
+                          color: isChild ? p.ink2 : p.ink,
+                        ),
+                      ),
+                      trailing: Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                        color: p.ink3,
+                      ),
+                      onTap: () => Navigator.of(ctx).pop(c),
+                    );
+                  },
+                ),
+              ),
+              const SafeArea(top: false, child: SizedBox(height: 4)),
             ],
           ),
         );
