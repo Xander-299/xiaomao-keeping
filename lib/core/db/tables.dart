@@ -151,6 +151,12 @@ class Budgets extends Table {
   /// 预算金额（分），恒为正。
   IntColumn get amountCents => integer()();
 
+  /// 分类级预算（P? / FR-BUDGET-10）：null = 总预算，非空 = 该分类的额度。
+  ///
+  /// 唯一性由 v7 的两个部分唯一索引保证（见 `schema_v7.dart`）：
+  /// SQLite 的唯一索引里 NULL 互不相等，所以「总预算」与「分类预算」必须拆两条索引。
+  TextColumn get categoryId => text().nullable()();
+
   TextColumn get ownerId => text().nullable()();
 
   IntColumn get createdAt => integer()();

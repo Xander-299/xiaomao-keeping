@@ -3428,6 +3428,17 @@ class $BudgetsTable extends Budgets with TableInfo<$BudgetsTable, BudgetRow> {
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _categoryIdMeta = const VerificationMeta(
+    'categoryId',
+  );
+  @override
+  late final GeneratedColumn<String> categoryId = GeneratedColumn<String>(
+    'category_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _ownerIdMeta = const VerificationMeta(
     'ownerId',
   );
@@ -3488,6 +3499,7 @@ class $BudgetsTable extends Budgets with TableInfo<$BudgetsTable, BudgetRow> {
     bookId,
     period,
     amountCents,
+    categoryId,
     ownerId,
     createdAt,
     updatedAt,
@@ -3537,6 +3549,12 @@ class $BudgetsTable extends Budgets with TableInfo<$BudgetsTable, BudgetRow> {
       );
     } else if (isInserting) {
       context.missing(_amountCentsMeta);
+    }
+    if (data.containsKey('category_id')) {
+      context.handle(
+        _categoryIdMeta,
+        categoryId.isAcceptableOrUnknown(data['category_id']!, _categoryIdMeta),
+      );
     }
     if (data.containsKey('owner_id')) {
       context.handle(
@@ -3597,6 +3615,10 @@ class $BudgetsTable extends Budgets with TableInfo<$BudgetsTable, BudgetRow> {
         DriftSqlType.int,
         data['${effectivePrefix}amount_cents'],
       )!,
+      categoryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category_id'],
+      ),
       ownerId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}owner_id'],
@@ -3635,6 +3657,12 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
 
   /// 预算金额（分），恒为正。
   final int amountCents;
+
+  /// 分类级预算（P? / FR-BUDGET-10）：null = 总预算，非空 = 该分类的额度。
+  ///
+  /// 唯一性由 v7 的两个部分唯一索引保证（见 `schema_v7.dart`）：
+  /// SQLite 的唯一索引里 NULL 互不相等，所以「总预算」与「分类预算」必须拆两条索引。
+  final String? categoryId;
   final String? ownerId;
   final int createdAt;
   final int updatedAt;
@@ -3645,6 +3673,7 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
     required this.bookId,
     required this.period,
     required this.amountCents,
+    this.categoryId,
     this.ownerId,
     required this.createdAt,
     required this.updatedAt,
@@ -3658,6 +3687,9 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
     map['book_id'] = Variable<String>(bookId);
     map['period'] = Variable<String>(period);
     map['amount_cents'] = Variable<int>(amountCents);
+    if (!nullToAbsent || categoryId != null) {
+      map['category_id'] = Variable<String>(categoryId);
+    }
     if (!nullToAbsent || ownerId != null) {
       map['owner_id'] = Variable<String>(ownerId);
     }
@@ -3676,6 +3708,9 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
       bookId: Value(bookId),
       period: Value(period),
       amountCents: Value(amountCents),
+      categoryId: categoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(categoryId),
       ownerId: ownerId == null && nullToAbsent
           ? const Value.absent()
           : Value(ownerId),
@@ -3698,6 +3733,7 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
       bookId: serializer.fromJson<String>(json['bookId']),
       period: serializer.fromJson<String>(json['period']),
       amountCents: serializer.fromJson<int>(json['amountCents']),
+      categoryId: serializer.fromJson<String?>(json['categoryId']),
       ownerId: serializer.fromJson<String?>(json['ownerId']),
       createdAt: serializer.fromJson<int>(json['createdAt']),
       updatedAt: serializer.fromJson<int>(json['updatedAt']),
@@ -3713,6 +3749,7 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
       'bookId': serializer.toJson<String>(bookId),
       'period': serializer.toJson<String>(period),
       'amountCents': serializer.toJson<int>(amountCents),
+      'categoryId': serializer.toJson<String?>(categoryId),
       'ownerId': serializer.toJson<String?>(ownerId),
       'createdAt': serializer.toJson<int>(createdAt),
       'updatedAt': serializer.toJson<int>(updatedAt),
@@ -3726,6 +3763,7 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
     String? bookId,
     String? period,
     int? amountCents,
+    Value<String?> categoryId = const Value.absent(),
     Value<String?> ownerId = const Value.absent(),
     int? createdAt,
     int? updatedAt,
@@ -3736,6 +3774,7 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
     bookId: bookId ?? this.bookId,
     period: period ?? this.period,
     amountCents: amountCents ?? this.amountCents,
+    categoryId: categoryId.present ? categoryId.value : this.categoryId,
     ownerId: ownerId.present ? ownerId.value : this.ownerId,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -3750,6 +3789,9 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
       amountCents: data.amountCents.present
           ? data.amountCents.value
           : this.amountCents,
+      categoryId: data.categoryId.present
+          ? data.categoryId.value
+          : this.categoryId,
       ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -3765,6 +3807,7 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
           ..write('bookId: $bookId, ')
           ..write('period: $period, ')
           ..write('amountCents: $amountCents, ')
+          ..write('categoryId: $categoryId, ')
           ..write('ownerId: $ownerId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -3780,6 +3823,7 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
     bookId,
     period,
     amountCents,
+    categoryId,
     ownerId,
     createdAt,
     updatedAt,
@@ -3794,6 +3838,7 @@ class BudgetRow extends DataClass implements Insertable<BudgetRow> {
           other.bookId == this.bookId &&
           other.period == this.period &&
           other.amountCents == this.amountCents &&
+          other.categoryId == this.categoryId &&
           other.ownerId == this.ownerId &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
@@ -3806,6 +3851,7 @@ class BudgetsCompanion extends UpdateCompanion<BudgetRow> {
   final Value<String> bookId;
   final Value<String> period;
   final Value<int> amountCents;
+  final Value<String?> categoryId;
   final Value<String?> ownerId;
   final Value<int> createdAt;
   final Value<int> updatedAt;
@@ -3817,6 +3863,7 @@ class BudgetsCompanion extends UpdateCompanion<BudgetRow> {
     this.bookId = const Value.absent(),
     this.period = const Value.absent(),
     this.amountCents = const Value.absent(),
+    this.categoryId = const Value.absent(),
     this.ownerId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -3829,6 +3876,7 @@ class BudgetsCompanion extends UpdateCompanion<BudgetRow> {
     required String bookId,
     required String period,
     required int amountCents,
+    this.categoryId = const Value.absent(),
     this.ownerId = const Value.absent(),
     required int createdAt,
     required int updatedAt,
@@ -3846,6 +3894,7 @@ class BudgetsCompanion extends UpdateCompanion<BudgetRow> {
     Expression<String>? bookId,
     Expression<String>? period,
     Expression<int>? amountCents,
+    Expression<String>? categoryId,
     Expression<String>? ownerId,
     Expression<int>? createdAt,
     Expression<int>? updatedAt,
@@ -3858,6 +3907,7 @@ class BudgetsCompanion extends UpdateCompanion<BudgetRow> {
       if (bookId != null) 'book_id': bookId,
       if (period != null) 'period': period,
       if (amountCents != null) 'amount_cents': amountCents,
+      if (categoryId != null) 'category_id': categoryId,
       if (ownerId != null) 'owner_id': ownerId,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -3872,6 +3922,7 @@ class BudgetsCompanion extends UpdateCompanion<BudgetRow> {
     Value<String>? bookId,
     Value<String>? period,
     Value<int>? amountCents,
+    Value<String?>? categoryId,
     Value<String?>? ownerId,
     Value<int>? createdAt,
     Value<int>? updatedAt,
@@ -3884,6 +3935,7 @@ class BudgetsCompanion extends UpdateCompanion<BudgetRow> {
       bookId: bookId ?? this.bookId,
       period: period ?? this.period,
       amountCents: amountCents ?? this.amountCents,
+      categoryId: categoryId ?? this.categoryId,
       ownerId: ownerId ?? this.ownerId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -3907,6 +3959,9 @@ class BudgetsCompanion extends UpdateCompanion<BudgetRow> {
     }
     if (amountCents.present) {
       map['amount_cents'] = Variable<int>(amountCents.value);
+    }
+    if (categoryId.present) {
+      map['category_id'] = Variable<String>(categoryId.value);
     }
     if (ownerId.present) {
       map['owner_id'] = Variable<String>(ownerId.value);
@@ -3936,6 +3991,7 @@ class BudgetsCompanion extends UpdateCompanion<BudgetRow> {
           ..write('bookId: $bookId, ')
           ..write('period: $period, ')
           ..write('amountCents: $amountCents, ')
+          ..write('categoryId: $categoryId, ')
           ..write('ownerId: $ownerId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -6164,6 +6220,7 @@ typedef $$BudgetsTableCreateCompanionBuilder =
       required String bookId,
       required String period,
       required int amountCents,
+      Value<String?> categoryId,
       Value<String?> ownerId,
       required int createdAt,
       required int updatedAt,
@@ -6177,6 +6234,7 @@ typedef $$BudgetsTableUpdateCompanionBuilder =
       Value<String> bookId,
       Value<String> period,
       Value<int> amountCents,
+      Value<String?> categoryId,
       Value<String?> ownerId,
       Value<int> createdAt,
       Value<int> updatedAt,
@@ -6211,6 +6269,11 @@ class $$BudgetsTableFilterComposer
 
   ColumnFilters<int> get amountCents => $composableBuilder(
     column: $table.amountCents,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -6269,6 +6332,11 @@ class $$BudgetsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get ownerId => $composableBuilder(
     column: $table.ownerId,
     builder: (column) => ColumnOrderings(column),
@@ -6315,6 +6383,11 @@ class $$BudgetsTableAnnotationComposer
 
   GeneratedColumn<int> get amountCents => $composableBuilder(
     column: $table.amountCents,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
     builder: (column) => column,
   );
 
@@ -6366,6 +6439,7 @@ class $$BudgetsTableTableManager
                 Value<String> bookId = const Value.absent(),
                 Value<String> period = const Value.absent(),
                 Value<int> amountCents = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
                 Value<String?> ownerId = const Value.absent(),
                 Value<int> createdAt = const Value.absent(),
                 Value<int> updatedAt = const Value.absent(),
@@ -6377,6 +6451,7 @@ class $$BudgetsTableTableManager
                 bookId: bookId,
                 period: period,
                 amountCents: amountCents,
+                categoryId: categoryId,
                 ownerId: ownerId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -6390,6 +6465,7 @@ class $$BudgetsTableTableManager
                 required String bookId,
                 required String period,
                 required int amountCents,
+                Value<String?> categoryId = const Value.absent(),
                 Value<String?> ownerId = const Value.absent(),
                 required int createdAt,
                 required int updatedAt,
@@ -6401,6 +6477,7 @@ class $$BudgetsTableTableManager
                 bookId: bookId,
                 period: period,
                 amountCents: amountCents,
+                categoryId: categoryId,
                 ownerId: ownerId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,

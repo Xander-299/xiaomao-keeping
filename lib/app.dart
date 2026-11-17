@@ -22,6 +22,7 @@ import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/features/assets/presentation/assets_page.dart';
 import 'package:yanxin/features/autobook/presentation/auto_book_page.dart';
 import 'package:yanxin/features/book/presentation/book_manage_page.dart';
+import 'package:yanxin/features/budget/presentation/budget_page.dart';
 import 'package:yanxin/features/calendar/presentation/calendar_page.dart';
 import 'package:yanxin/features/calendar/presentation/month_picker_page.dart';
 import 'package:yanxin/features/category/presentation/category_manage_page.dart';
@@ -102,6 +103,7 @@ class _YanxinAppState extends ConsumerState<YanxinApp> {
         ),
       ),
       GoRoute(path: '/books', builder: (_, _) => const BookManagePage()),
+      GoRoute(path: '/budget', builder: (_, _) => const BudgetPage()),
       GoRoute(path: '/import', builder: (_, _) => const ImportPage()),
       // 月份选择：从右侧滑入（滚动），不再用 Material 默认的淡入/缩放。
       GoRoute(

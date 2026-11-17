@@ -88,11 +88,16 @@ Category _category({
   dirty: 1,
 );
 
-BudgetRow _budget({String period = '2026-09', int cents = 300000}) => BudgetRow(
+BudgetRow _budget({
+  String period = '2026-09',
+  int cents = 300000,
+  String? categoryId,
+}) => BudgetRow(
   id: 'g1',
   bookId: 'b1',
   period: period,
   amountCents: cents,
+  categoryId: categoryId,
   createdAt: _nowMs,
   updatedAt: _nowMs,
   dirty: 1,
@@ -343,5 +348,20 @@ void main() {
       expect(decoded.startsWith(kBillCsvHeader), isTrue);
       expect(decoded.codeUnitAt(0), isNot(0xFEFF));
     });
+  });
+
+  test('分类预算带 categoryId 导出；总预算为 null', () {
+    final Map<String, Object?> m = jsonDecode(
+      buildBackupJson(
+        book: _book(),
+        accounts: <Account>[_account()],
+        categories: <Category>[_category()],
+        transactions: <TxRow>[_tx(cents: 1234)],
+        budgets: <BudgetRow>[_budget(categoryId: 'c1')],
+        exportedAtMs: _nowMs,
+      ),
+    ) as Map<String, Object?>;
+    final List<Object?> budgets = m['budgets']! as List<Object?>;
+    expect((budgets.single! as Map<String, Object?>)['categoryId'], 'c1');
   });
 }

@@ -10,10 +10,12 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/core/utils/money.dart';
+import 'package:yanxin/features/budget/application/category_budget_controller.dart';
 
 import '../../application/budget_controller.dart';
 import '../../application/budget_metrics.dart';
@@ -50,6 +52,16 @@ class BudgetStrip extends ConsumerWidget {
     final AsyncValue<int?> budgetAsync = ref.watch(monthBudgetProvider);
     if (ledger == null) return const SizedBox.shrink();
 
+    // 分类预算里有超支时，在这一行里点名超得最多的那一类（Q8）。
+    final ({String name, int overCents, int count})? top =
+        topOverCategory(ref.watch(categoryBudgetsProvider).value ??
+            const <CategoryBudgetRow>[]);
+    final String? categoryHint = top == null
+        ? null
+        : (top.count == 1
+              ? '${top.name}超支 ¥${centsToYuan(top.overCents)}'
+              : '${top.name}等 ${top.count} 类超支');
+
     final BudgetView view = buildBudgetView(
       budgetCents: budgetAsync.value,
       spentCents: ledger.summary.expenseCents,
@@ -64,7 +76,7 @@ class BudgetStrip extends ConsumerWidget {
       child: ToonPress(
         dx: 2,
         dy: 2,
-        onTap: () => showBudgetEditSheet(context, ref, view: view),
+        onTap: () => context.push('/budget'),
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
           decoration: BoxDecoration(
@@ -74,7 +86,12 @@ class BudgetStrip extends ConsumerWidget {
             boxShadow: p.hard(d: 2),
           ),
           child: view.hasBudget
-              ? _Filled(view: view, showDaily: showDaily, detail: detail)
+              ? _Filled(
+                  view: view,
+                  showDaily: showDaily,
+                  detail: detail,
+                  categoryHint: categoryHint,
+                )
               : Row(
                   children: <Widget>[
                     Icon(Icons.savings_outlined, size: 16, color: p.ink2),
@@ -102,9 +119,13 @@ class _Filled extends StatelessWidget {
     required this.view,
     this.showDaily = true,
     this.detail = BudgetStripDetail.remaining,
+    this.categoryHint,
   });
 
   final BudgetView view;
+
+  /// 分类超支提示（非空时在副行下面再显示一行红字）。
+  final String? categoryHint;
 
   /// false 时不显示「每天可花」（首页布局参数）。
   final bool showDaily;
@@ -198,6 +219,27 @@ class _Filled extends StatelessWidget {
             ),
           ],
         ),
+        if (categoryHint != null) ...<Widget>[
+          const SizedBox(height: 2),
+          Row(
+            children: <Widget>[
+              const SizedBox(width: 21),
+              Expanded(
+                child: Text(
+                  categoryHint!,
+                  key: const ValueKey<String>('budgetCategoryHint'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    color: p.red,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }

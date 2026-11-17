@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/theme/palette.dart';
@@ -93,16 +94,39 @@ void main() {
     expect(find.textContaining('已超支 ¥500.00'), findsOneWidget);
   });
 
-  testWidgets('点这一行 → 打开预算编辑弹层', (WidgetTester tester) async {
+  testWidgets('点这一行 → 进预算页（FR-BUDGET-10 改了入口）', (WidgetTester tester) async {
     final r = await _seed(budgetCents: 200000);
     addTearDown(r.db.close);
-    await _pump(tester, r.db);
+
+    // 入口现在是路由跳转（/budget），所以这里要挂一个最小 GoRouter
+    final GoRouter router = GoRouter(
+      initialLocation: '/',
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Scaffold(body: BudgetStrip()),
+        ),
+        GoRoute(
+          path: '/budget',
+          builder: (_, _) => const Scaffold(body: Text('预算页占位')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appDatabaseProvider.overrideWithValue(r.db)],
+        child: MaterialApp.router(
+          theme: buildToonTheme(ToonPalette.light, Brightness.light),
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('预算 ¥2,000.00'));
     await tester.pumpAndSettle();
 
-    // 弹层里有关键动作按钮
-    expect(find.text('保存'), findsOneWidget);
-    expect(find.text('取消'), findsWidgets);
+    expect(find.text('预算页占位'), findsOneWidget);
   });
 }

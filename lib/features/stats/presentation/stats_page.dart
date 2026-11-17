@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/core/utils/money.dart';
+import 'package:yanxin/features/budget/application/category_budget_controller.dart';
+import 'package:yanxin/features/ledger/application/budget_metrics.dart';
 import 'package:yanxin/features/ledger/application/ledger_controller.dart';
 import 'package:yanxin/features/ledger/application/month_summary.dart';
 import 'package:yanxin/ui_kit/app_page_state.dart';
@@ -67,6 +69,8 @@ class _StatsBody extends ConsumerWidget {
         const SizedBox(height: 12),
         _BreakdownCard(
           state: state,
+          budgetRows: ref.watch(statsCategoryBudgetsProvider).value ??
+              const <String, CategoryBudgetRow>{},
           onKindChanged: (String kind) =>
               ref.read(statsProvider.notifier).setKind(kind),
         ),
@@ -204,9 +208,16 @@ class _StatCell extends StatelessWidget {
 
 /// 分类占比卡：支出/收入切换 + 圆环 + 图例。
 class _BreakdownCard extends StatelessWidget {
-  const _BreakdownCard({required this.state, required this.onKindChanged});
+  const _BreakdownCard({
+    required this.state,
+    required this.onKindChanged,
+    this.budgetRows = const <String, CategoryBudgetRow>{},
+  });
 
   final StatsState state;
+
+  /// 分类 id → 该月分类预算（空 Map = 这类没设预算，叠加行不出现）。
+  final Map<String, CategoryBudgetRow> budgetRows;
   final ValueChanged<String> onKindChanged;
 
   @override
@@ -261,7 +272,11 @@ class _BreakdownCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         for (var i = 0; i < slices.length; i++)
-                          _LegendRow(slice: slices[i], color: categoryColor(i)),
+                          _LegendRow(
+                            slice: slices[i],
+                            color: categoryColor(i),
+                            budget: budgetRows[slices[i].id],
+                          ),
                       ],
                     ),
                   ),
@@ -276,10 +291,13 @@ class _BreakdownCard extends StatelessWidget {
 
 /// 图例一行：色块 + 分类名 + 占比 + 金额。
 class _LegendRow extends StatelessWidget {
-  const _LegendRow({required this.slice, required this.color});
+  const _LegendRow({required this.slice, required this.color, this.budget});
 
   final CategorySlice slice;
   final Color color;
+
+  /// 该分类这个月的预算（null = 没设，不显示叠加行）。
+  final CategoryBudgetRow? budget;
 
   @override
   Widget build(BuildContext context) {
@@ -301,11 +319,33 @@ class _LegendRow extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              slice.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  slice.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (budget != null)
+                  Text(
+                    '预算 ¥${centsToYuan(budget!.amountCents)} · '
+                    '已用 ${(budget!.ratio * 100).round()}%'
+                    '${budget!.over ? ' · 已超支' : ''}',
+                    key: ValueKey<String>('stats-budget-${slice.id}'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      color: budget!.over ? p.red : muted,
+                    ),
+                  ),
+              ],
             ),
           ),
           ToonFadeValue(

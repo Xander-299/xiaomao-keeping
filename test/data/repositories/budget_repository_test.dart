@@ -177,4 +177,112 @@ void main() {
   test('listByBook：空账本返回空列表', () async {
     expect(await repo.listByBook(bookId), isEmpty);
   });
+
+  test('总预算与分类预算可并存；同分类重复设置是更新', () async {
+    await repo.setForMonth(
+      bookId: bookId,
+      year: 2026,
+      month: 9,
+      amountCents: 100000,
+    );
+    final first = await repo.setForMonth(
+      bookId: bookId,
+      year: 2026,
+      month: 9,
+      amountCents: 20000,
+      categoryId: 'cat-food',
+    );
+    final again = await repo.setForMonth(
+      bookId: bookId,
+      year: 2026,
+      month: 9,
+      amountCents: 30000,
+      categoryId: 'cat-food',
+    );
+
+    expect(again.id, first.id, reason: '同分类同月 = 更新同一行');
+    expect(again.createdAt, first.createdAt, reason: '保留原始创建时间');
+    expect(again.amountCents, 30000);
+
+    final all = await repo.listForMonth(bookId, 2026, 9);
+    expect(all.length, 2, reason: '总预算 + 一个分类预算');
+    expect(
+      all.where((b) => b.categoryId == null).single.amountCents,
+      100000,
+    );
+  });
+
+  test('clearForMonth 带分类时只删那一条', () async {
+    await repo.setForMonth(
+      bookId: bookId,
+      year: 2026,
+      month: 9,
+      amountCents: 100000,
+    );
+    await repo.setForMonth(
+      bookId: bookId,
+      year: 2026,
+      month: 9,
+      amountCents: 20000,
+      categoryId: 'cat-food',
+    );
+
+    final removed = await repo.clearForMonth(
+      bookId,
+      2026,
+      9,
+      categoryId: 'cat-food',
+    );
+
+    expect(removed, 1);
+    final rows = await repo.listForMonth(bookId, 2026, 9);
+    expect(rows.length, 1);
+    expect(rows.single.categoryId, isNull, reason: '总预算不受影响');
+  });
+
+  test('carryCategoryBudgets：复制上月分类预算，已有的跳过', () async {
+    await repo.setForMonth(
+      bookId: bookId,
+      year: 2026,
+      month: 8,
+      amountCents: 20000,
+      categoryId: 'cat-food',
+    );
+    await repo.setForMonth(
+      bookId: bookId,
+      year: 2026,
+      month: 8,
+      amountCents: 50000,
+      categoryId: 'cat-shop',
+    );
+    await repo.setForMonth(
+      bookId: bookId,
+      year: 2026,
+      month: 8,
+      amountCents: 100000,
+    ); // 总预算不该被复制
+    await repo.setForMonth(
+      bookId: bookId,
+      year: 2026,
+      month: 9,
+      amountCents: 99999,
+      categoryId: 'cat-food',
+    ); // 本月已有 → 不覆盖
+
+    final copied = await repo.carryCategoryBudgets(
+      bookId: bookId,
+      fromPeriod: '2026-08',
+      toPeriod: '2026-09',
+    );
+
+    expect(copied, 1, reason: '只补 cat-shop');
+    final sept = await repo.listForMonth(bookId, 2026, 9);
+    expect(sept.length, 2, reason: 'cat-shop + 原有的 cat-food');
+    expect(
+      sept.firstWhere((b) => b.categoryId == 'cat-food').amountCents,
+      99999,
+      reason: '已存在的不覆盖',
+    );
+    expect(sept.where((b) => b.categoryId == null), isEmpty, reason: '总预算不复制');
+  });
 }

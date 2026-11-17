@@ -6,6 +6,7 @@ import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/db/schema_v1.dart';
 import 'package:yanxin/core/db/schema_v2.dart';
 import 'package:yanxin/core/db/schema_v5.dart';
+import 'package:yanxin/core/db/schema_v7.dart';
 import 'package:yanxin/data/repositories/account_repository.dart';
 import 'package:yanxin/data/repositories/budget_repository.dart';
 
@@ -76,16 +77,28 @@ void main() {
       expect(occurred.read<String>('sql'), contains('DESC'));
     });
 
-    test('v2 索引：预算「账本 + 月份」部分唯一', () async {
-      final sql = await db
+    test('v7 索引：预算按「总预算 / 分类预算」拆成两条部分唯一', () async {
+      final rows = await db
           .customSelect(
-            'SELECT sql FROM sqlite_master '
-            "WHERE name = 'idx_budget_book_period'",
+            'SELECT name, sql FROM sqlite_master WHERE name IN '
+            "('idx_budget_book_period_total','idx_budget_book_period_category')",
           )
-          .getSingle();
-      final String ddl = sql.read<String>('sql');
-      expect(ddl, contains('UNIQUE'));
-      expect(ddl, contains('deleted_at IS NULL'));
+          .get();
+      expect(rows.length, 2, reason: '旧的一条 idx_budget_book_period 必须被换掉');
+      for (final row in rows) {
+        final String ddl = row.read<String>('sql');
+        expect(ddl, contains('UNIQUE'));
+        expect(ddl, contains('deleted_at IS NULL'));
+      }
+      // 一条卡总预算（category_id IS NULL），一条卡分类
+      final String total = rows
+          .firstWhere((r) => r.read<String>('name').endsWith('_total'))
+          .read<String>('sql');
+      final String byCategory = rows
+          .firstWhere((r) => r.read<String>('name').endsWith('_category'))
+          .read<String>('sql');
+      expect(total, contains('category_id IS NULL'));
+      expect(byCategory, contains('category_id'));
 
       // 直接插两行同账本同月份的未删预算 → 唯一冲突
       Future<void> insert(String id, int deleted) => db.customStatement(
@@ -102,7 +115,7 @@ void main() {
 
     test('schemaVersion 落库为 6（PRAGMA user_version）', () async {
       final row = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(row.read<int>('user_version'), 6);
+      expect(row.read<int>('user_version'), 7);
     });
 
     test('建表/建索引 DDL 幂等：重复执行不报错且版本不变', () async {
@@ -110,11 +123,12 @@ void main() {
         ...kSchemaV1Indexes,
         ...kSchemaV2Indexes,
         ...kSchemaV5Indexes,
+        ...kSchemaV7Indexes,
       ]) {
         await db.customStatement(sql);
       }
       final row = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(row.read<int>('user_version'), 6);
+      expect(row.read<int>('user_version'), 7);
     });
 
     test('指纹部分唯一索引：同账本重复冲突，跨账本允许', () async {
@@ -205,6 +219,12 @@ void main() {
       );
       await v1.customStatement('DROP TABLE budgets');
       await v1.customStatement('DROP INDEX IF EXISTS idx_budget_book_period');
+      await v1.customStatement(
+        'DROP INDEX IF EXISTS idx_budget_book_period_total',
+      );
+      await v1.customStatement(
+        'DROP INDEX IF EXISTS idx_budget_book_period_category',
+      );
       await v1.customStatement('PRAGMA user_version = 1');
       final int before = (await v1.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version');
@@ -216,10 +236,16 @@ void main() {
       addTearDown(v2.close);
 
       expect(await _objects(v2, 'table'), contains('budgets'));
-      expect(await _objects(v2, 'index'), contains('idx_budget_book_period'));
+      expect(
+        await _objects(v2, 'index'),
+        containsAll(<String>[
+          'idx_budget_book_period_total',
+          'idx_budget_book_period_category',
+        ]),
+      );
       final int after = (await v2.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version');
-      expect(after, 6); // 一次走完 1→2→3→4→5→6 五条迁移
+      expect(after, 7); // 一次走完 1→2→3→4→5→6→7 六条迁移
 
       // 老数据仍在
       final book = await v2
@@ -269,13 +295,13 @@ void main() {
       await v2.customStatement('PRAGMA user_version = 2');
       await v2.close();
 
-      // 用「新版本代码」打开同一个库 → 走 onUpgrade(from 2, to 6)
+      // 用「新版本代码」打开同一个库 → 走 onUpgrade(from 2, to 7)
       final AppDatabase v3 = AppDatabase(NativeDatabase.opened(raw));
       addTearDown(v3.close);
 
       final int after = (await v3.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version');
-      expect(after, 6);
+      expect(after, 7);
 
       // 既有行数据不丢，且新列落默认空串（= 跟随类型）
       final row = await v3
@@ -331,7 +357,7 @@ void main() {
 
       final int after = (await v5.customSelect('PRAGMA user_version').getSingle())
           .read<int>('user_version');
-      expect(after, 6);
+      expect(after, 7);
 
       final index = await v5
           .customSelect(

@@ -338,11 +338,16 @@ Future<BackupRestoreReport> restoreBackupJson(
     final Match? m = periodRe.firstMatch(period);
     if (amount <= 0 || m == null) continue;
     try {
+      final Object? rawCategory = raw['categoryId'];
       await BudgetRepository(db).setForMonth(
         bookId: bookId,
         year: int.parse(m.group(1)!),
         month: int.parse(m.group(2)!),
         amountCents: amount,
+        // 旧备份没有这个字段 → null = 总预算（前向兼容）
+        categoryId: rawCategory is String && rawCategory.isNotEmpty
+            ? rawCategory
+            : null,
       );
       report.budgetsRestored++;
     } on Object {

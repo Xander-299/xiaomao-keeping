@@ -11,6 +11,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/core/utils/money.dart';
+import 'package:yanxin/data/providers/database.dart';
+import 'package:yanxin/features/budget/application/category_budget_controller.dart';
 import 'package:yanxin/ui_kit/app_sheet_header.dart';
 
 import '../../application/budget_controller.dart';
@@ -25,6 +27,8 @@ Future<void> showBudgetEditSheet(
   BuildContext context,
   WidgetRef ref, {
   required BudgetView view,
+  String? categoryId,
+  String? categoryName,
 }) {
   final ToonPalette p = context.toon;
   return showModalBottomSheet<void>(
@@ -38,14 +42,25 @@ Future<void> showBudgetEditSheet(
     builder: (BuildContext _) => _BudgetEditSheet(
       initialCents: view.budgetCents,
       spentCents: view.spentCents,
+      categoryId: categoryId,
+      categoryName: categoryName,
     ),
   );
 }
 
 class _BudgetEditSheet extends ConsumerStatefulWidget {
-  const _BudgetEditSheet({required this.initialCents, required this.spentCents});
+  const _BudgetEditSheet({
+    required this.initialCents,
+    required this.spentCents,
+    this.categoryId,
+    this.categoryName,
+  });
 
   final int initialCents;
+
+  /// 非空 = 设置**分类预算**（FR-BUDGET-10）；空 = 总预算。
+  final String? categoryId;
+  final String? categoryName;
 
   /// 该月已消费（分），用于「当前 / 已消费」那行提示。
   final int spentCents;
@@ -112,7 +127,11 @@ class _BudgetEditSheetState extends ConsumerState<_BudgetEditSheet> {
     final NavigatorState navigator = Navigator.of(context);
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     try {
-      await ref.read(monthBudgetProvider.notifier).setAmount(cents);
+      if (widget.categoryId == null) {
+        await ref.read(monthBudgetProvider.notifier).setAmount(cents);
+      } else {
+        await _saveCategory(cents);
+      }
     } on Object catch (e) {
       if (!mounted) return;
       setState(() {
@@ -127,7 +146,12 @@ class _BudgetEditSheetState extends ConsumerState<_BudgetEditSheet> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text('已设置$month月预算 ¥${centsToYuan(cents, group: true)}'),
+          content: Text(
+            widget.categoryName == null
+                ? '已设置$month月预算 ¥${centsToYuan(cents, group: true)}'
+                : '已设置「${widget.categoryName}」$month月预算 '
+                      '¥${centsToYuan(cents, group: true)}',
+          ),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -159,7 +183,11 @@ class _BudgetEditSheetState extends ConsumerState<_BudgetEditSheet> {
     if (ok != true || !mounted) return;
     setState(() => _busy = true);
     try {
-      await ref.read(monthBudgetProvider.notifier).clear();
+      if (widget.categoryId == null) {
+        await ref.read(monthBudgetProvider.notifier).clear();
+      } else {
+        await _clearCategory();
+      }
     } on Object catch (e) {
       if (!mounted) return;
       setState(() {
@@ -170,6 +198,40 @@ class _BudgetEditSheetState extends ConsumerState<_BudgetEditSheet> {
     }
     if (!mounted) return;
     Navigator.of(context).pop();
+  }
+
+  Future<void> _saveCategory(int cents) async {
+    final String categoryId = widget.categoryId!;
+    final ({int year, int month}) month = _month();
+    final LedgerState? ledger = ref.read(ledgerProvider).value;
+    if (ledger == null) throw StateError('首页月份未就绪');
+    await ref.read(budgetRepositoryProvider).setForMonth(
+          bookId: ledger.bookId,
+          year: month.year,
+          month: month.month,
+          amountCents: cents,
+          categoryId: categoryId,
+        );
+    _invalidateBudgets();
+  }
+
+  Future<void> _clearCategory() async {
+    final String categoryId = widget.categoryId!;
+    final ({int year, int month}) month = _month();
+    final LedgerState? ledger = ref.read(ledgerProvider).value;
+    if (ledger == null) throw StateError('首页月份未就绪');
+    await ref.read(budgetRepositoryProvider).clearForMonth(
+          ledger.bookId,
+          month.year,
+          month.month,
+          categoryId: categoryId,
+        );
+    _invalidateBudgets();
+  }
+
+  void _invalidateBudgets() {
+    ref.invalidate(monthBudgetsProvider);
+    ref.invalidate(categoryBudgetsProvider);
   }
 
   @override
