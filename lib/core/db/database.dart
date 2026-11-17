@@ -19,6 +19,7 @@ import 'schema_v2.dart';
 import 'schema_v4.dart';
 import 'schema_v5.dart';
 import 'schema_v6.dart';
+import 'schema_v7.dart';
 import 'tables.dart';
 
 part 'database.g.dart';
@@ -38,7 +39,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -61,6 +62,10 @@ class AppDatabase extends _$AppDatabase {
           }
           // v6：冲突存档表由 createAll 建好，只差索引。
           for (final sql in kSchemaV6Indexes) {
+            await customStatement(sql);
+          }
+          // v7：预算唯一索引按「总预算 / 分类预算」拆成两条。
+          for (final sql in kSchemaV7Indexes) {
             await customStatement(sql);
           }
         },
@@ -100,6 +105,15 @@ class AppDatabase extends _$AppDatabase {
             // v5：只替换索引，不重建表、不改既有行。
             // 旧库的 idx_tx_fingerprint 是全局唯一；先 DROP 再按 (book_id, fingerprint) 建。
             for (final sql in kSchemaV5Indexes) {
+              await customStatement(sql);
+            }
+          }
+          if (from < 7) {
+            // v7：只加列 + 换索引（FR-BUDGET-10）。总预算行 category_id 为 NULL，不动。
+            if (!await _columnExists('budgets', 'category_id')) {
+              await m.addColumn(budgets, budgets.categoryId);
+            }
+            for (final sql in kSchemaV7Indexes) {
               await customStatement(sql);
             }
           }

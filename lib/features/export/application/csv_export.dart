@@ -229,6 +229,8 @@ Map<String, Object?> _budgetJson(BudgetRow b) => <String, Object?>{
   'bookId': b.bookId,
   'period': b.period,
   'amountCents': b.amountCents,
+  // FR-BUDGET-10：null = 总预算；非空 = 分类预算（可选字段，旧备份没有它）
+  'categoryId': b.categoryId,
   'ownerId': b.ownerId,
   'createdAt': b.createdAt,
   'updatedAt': b.updatedAt,

@@ -5,6 +5,7 @@
 /// 直接复用 `calendar_aggregate.dart` 里已单测过的 [dailyAverageExpenseCents]。
 library;
 
+import 'package:yanxin/core/db/database.dart';
 import 'package:yanxin/core/utils/date.dart';
 
 import '../../calendar/application/calendar_aggregate.dart';
@@ -126,4 +127,120 @@ BudgetView buildBudgetView({
     dailyRemainingCents: dailyRemaining,
     daysLeft: daysLeft,
   );
+}
+
+// ── 分类级预算（FR-BUDGET-10）──────────────────────────────────────────
+
+/// 分类预算的一行（纯数据，UI 只排版）。
+class CategoryBudgetRow {
+  const CategoryBudgetRow({
+    required this.categoryId,
+    required this.name,
+    required this.amountCents,
+    required this.spentCents,
+    this.hasChildren = false,
+  });
+
+  final String categoryId;
+
+  /// 展示名：一级「餐饮」，二级「餐饮 · 早餐」。
+  final String name;
+
+  /// 额度（分，恒为正）。
+  final int amountCents;
+
+  /// 已花（分）：一级 = 自身 + **全部子级**（Q7，允许与子级行重叠计数）。
+  final int spentCents;
+
+  /// 是否有一级子分类（用于文案「含子分类」）。
+  final bool hasChildren;
+
+  int get remainingCents => amountCents - spentCents;
+
+  bool get over => spentCents > amountCents;
+
+  int get overCents => over ? spentCents - amountCents : 0;
+
+  /// 进度（0..∞，UI 自己 clamp 画条）。
+  double get ratio => amountCents <= 0 ? 0 : spentCents / amountCents;
+}
+
+/// 把「分类树 + 本月预算 + 本月按分类的支出」算成分类预算行。
+///
+/// 口径（与 SPEC-F7.3b D3 一致）：
+/// - 只收**支出类**分类；只输出**设了预算**的分类（没设的不占位）；
+/// - 一级的已花 = 直接记在一级上的支出 + 其全部子级的支出（**含子级会重复计数**）；
+/// - 二级的已花 = 该二级自己的支出；
+/// - 排序跟随分类树：一级在前，其子级紧随其后（入参顺序即树顺序）。
+///
+/// 归档分类也要传进来（历史月仍要显示名字），是否进「可编辑列表」由调用方决定。
+List<CategoryBudgetRow> buildCategoryBudgets({
+  required List<Category> categories,
+  required Map<String, int> budgetByCategoryId,
+  required Map<String, int> spentByCategoryId,
+}) {
+  if (budgetByCategoryId.isEmpty) return const <CategoryBudgetRow>[];
+
+  final Map<String, Category> byId = <String, Category>{
+    for (final Category c in categories) c.id: c,
+  };
+  final Map<String, List<Category>> childrenOf = <String, List<Category>>{};
+  for (final Category c in categories) {
+    final String? parent = c.parentId;
+    if (parent == null) continue;
+    childrenOf.putIfAbsent(parent, () => <Category>[]).add(c);
+  }
+
+  int spentOf(String id) {
+    int total = spentByCategoryId[id] ?? 0;
+    for (final Category child in childrenOf[id] ?? const <Category>[]) {
+      total += spentByCategoryId[child.id] ?? 0;
+    }
+    return total;
+  }
+
+  final List<CategoryBudgetRow> rows = <CategoryBudgetRow>[];
+  for (final Category parent in categories) {
+    if (parent.parentId != null || parent.kind != 'expense') continue;
+    final int? parentBudget = budgetByCategoryId[parent.id];
+    if (parentBudget != null) {
+      rows.add(
+        CategoryBudgetRow(
+          categoryId: parent.id,
+          name: parent.name,
+          amountCents: parentBudget,
+          spentCents: spentOf(parent.id),
+          hasChildren: (childrenOf[parent.id] ?? const <Category>[]).isNotEmpty,
+        ),
+      );
+    }
+    for (final Category child in childrenOf[parent.id] ?? const <Category>[]) {
+      final int? childBudget = budgetByCategoryId[child.id];
+      if (childBudget == null) continue;
+      rows.add(
+        CategoryBudgetRow(
+          categoryId: child.id,
+          name: '${parent.name} · ${child.name}',
+          amountCents: childBudget,
+          spentCents: spentByCategoryId[child.id] ?? 0,
+        ),
+      );
+    }
+  }
+
+  // 兜底：父级已归档/找不到但在预算表里还有行的分类（历史数据），仍要能显示。
+  for (final MapEntry<String, int> e in budgetByCategoryId.entries) {
+    if (rows.any((CategoryBudgetRow r) => r.categoryId == e.key)) continue;
+    final Category? c = byId[e.key];
+    if (c == null) continue;
+    rows.add(
+      CategoryBudgetRow(
+        categoryId: c.id,
+        name: c.name,
+        amountCents: e.value,
+        spentCents: spentOf(c.id),
+      ),
+    );
+  }
+  return rows;
 }

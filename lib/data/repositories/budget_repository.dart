@@ -22,22 +22,50 @@ class BudgetRepository {
       '$year-${month.toString().padLeft(2, '0')}';
 
   /// 取某账本某月的预算；未设置返回 null。
-  Future<BudgetRow?> getForMonth(String bookId, int year, int month) {
+  ///
+  /// [categoryId] 为 null = **总预算**；非空 = 该分类的额度（FR-BUDGET-10）。
+  Future<BudgetRow?> getForMonth(
+    String bookId,
+    int year,
+    int month, {
+    String? categoryId,
+  }) {
     return (_db.select(_db.budgets)..where(
           (b) =>
               b.bookId.equals(bookId) &
               b.period.equals(periodOf(year, month)) &
-              b.deletedAt.isNull(),
+              b.deletedAt.isNull() &
+              (categoryId == null
+                  ? b.categoryId.isNull()
+                  : b.categoryId.equals(categoryId)),
         ))
         .getSingleOrNull();
   }
 
-  /// 设置（新增或更新）某账本某月的预算。金额必须是正整数分。
+  /// 某账本某月的**所有**有效预算（总预算 + 分类预算），按分类 id 升序（null 最前）。
+  Future<List<BudgetRow>> listForMonth(String bookId, int year, int month) {
+    return (_db.select(_db.budgets)
+          ..where(
+            (b) =>
+                b.bookId.equals(bookId) &
+                b.period.equals(periodOf(year, month)) &
+                b.deletedAt.isNull(),
+          )
+          ..orderBy(<OrderClauseGenerator<$BudgetsTable>>[
+            (b) => OrderingTerm.asc(b.categoryId),
+          ]))
+        .get();
+  }
+
+  /// 设置（新增或更新）某账本某月（某分类）的预算。金额必须是正整数分。
+  ///
+  /// [categoryId] 为 null = 总预算；非空 = 分类预算。
   Future<BudgetRow> setForMonth({
     required String bookId,
     required int year,
     required int month,
     required int amountCents,
+    String? categoryId,
   }) async {
     if (amountCents <= 0) {
       throw ArgumentError.value(amountCents, 'amountCents', '预算金额必须为正整数（分）');
@@ -46,7 +74,12 @@ class BudgetRepository {
       throw ArgumentError('bookId 为必填');
     }
     final now = DateTime.now().millisecondsSinceEpoch;
-    final existing = await getForMonth(bookId, year, month);
+    final existing = await getForMonth(
+      bookId,
+      year,
+      month,
+      categoryId: categoryId,
+    );
     if (existing != null) {
       await (_db.update(_db.budgets)
             ..where((b) => b.id.equals(existing.id) & b.deletedAt.isNull()))
@@ -68,6 +101,7 @@ class BudgetRepository {
             bookId: bookId,
             period: periodOf(year, month),
             amountCents: amountCents,
+            categoryId: Value(categoryId),
             createdAt: now,
             updatedAt: now,
           ),
@@ -84,15 +118,79 @@ class BudgetRepository {
         .get();
   }
 
-  /// 清除某账本某月的预算（软删除）。返回受影响行数（0 表示本来就没设）。
-  Future<int> clearForMonth(String bookId, int year, int month) {
+  /// 把 [fromPeriod] 的分类预算复制到 [toPeriod]；**已存在的分类跳过**，返回复制条数。
+  ///
+  /// 只复制分类预算 —— 总预算由用户按月自己决定（Q4 的口径是「分类预算沿用」）。
+  /// 已软删的源行不复制。
+  Future<int> carryCategoryBudgets({
+    required String bookId,
+    required String fromPeriod,
+    required String toPeriod,
+  }) async {
+    if (bookId.isEmpty || fromPeriod == toPeriod) return 0;
+    final List<BudgetRow> source = await (_db.select(_db.budgets)
+          ..where(
+            (b) =>
+                b.bookId.equals(bookId) &
+                b.period.equals(fromPeriod) &
+                b.deletedAt.isNull() &
+                b.categoryId.isNotNull(),
+          ))
+        .get();
+    if (source.isEmpty) return 0;
+
+    final List<BudgetRow> targetRows =
+        await (_db.select(_db.budgets)..where(
+              (b) =>
+                  b.bookId.equals(bookId) &
+                  b.period.equals(toPeriod) &
+                  b.deletedAt.isNull() &
+                  b.categoryId.isNotNull(),
+            ))
+            .get();
+    final Set<String> existing = <String>{
+      for (final BudgetRow row in targetRows)
+        if (row.categoryId != null) row.categoryId!,
+    };
+
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    int copied = 0;
+    for (final BudgetRow row in source) {
+      final String? categoryId = row.categoryId;
+      if (categoryId == null || existing.contains(categoryId)) continue;
+      await _db.into(_db.budgets).insert(
+            BudgetsCompanion.insert(
+              id: uuidV4(),
+              bookId: bookId,
+              period: toPeriod,
+              amountCents: row.amountCents,
+              categoryId: Value(categoryId),
+              createdAt: now,
+              updatedAt: now,
+            ),
+          );
+      copied++;
+    }
+    return copied;
+  }
+
+  /// 清除某账本某月（某分类）的预算（软删除）。返回受影响行数（0 表示本来就没设）。
+  Future<int> clearForMonth(
+    String bookId,
+    int year,
+    int month, {
+    String? categoryId,
+  }) {
     final now = DateTime.now().millisecondsSinceEpoch;
     return (_db.update(_db.budgets)
           ..where(
             (b) =>
                 b.bookId.equals(bookId) &
                 b.period.equals(periodOf(year, month)) &
-                b.deletedAt.isNull(),
+                b.deletedAt.isNull() &
+                (categoryId == null
+                    ? b.categoryId.isNull()
+                    : b.categoryId.equals(categoryId)),
           ))
         .write(
       BudgetsCompanion(
