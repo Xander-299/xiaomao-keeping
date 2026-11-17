@@ -15,6 +15,7 @@ import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/providers/account_scope.dart';
 import 'package:yanxin/core/providers/data_epoch.dart';
 import 'package:yanxin/core/security/token_store.dart';
+import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/features/import/application/backup_restore.dart';
@@ -388,7 +389,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
             padding: EdgeInsets.zero,
             child: InkWell(
               key: ValueKey<String>('account-${account.email}'),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(Tok.rLg),
               onTap: () => _switchTo(account),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
@@ -818,7 +819,7 @@ class _StatusCard extends StatelessWidget {
             height: 44,
             decoration: BoxDecoration(
               color: auth.signedIn ? p.brandTint : p.canvas2,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(Tok.rMd),
             ),
             child: Icon(
               auth.signedIn

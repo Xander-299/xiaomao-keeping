@@ -71,10 +71,10 @@ void main() {
 
   test('active_book_id 持久化（BUG-016 回归点）', () async {
     final book = await repo.create(name: 'A');
-    expect(await repo.getActiveBookId(), isNull);
-    await repo.setActiveBookId(book.id);
-    expect(await repo.getActiveBookId(), book.id);
-    await repo.setActiveBookId('other-id');
-    expect(await repo.getActiveBookId(), 'other-id');
+    expect(await repo.getActiveBookIdFor(null), isNull);
+    await repo.setActiveBookIdFor(null, book.id);
+    expect(await repo.getActiveBookIdFor(null), book.id);
+    await repo.setActiveBookIdFor(null, 'other-id');
+    expect(await repo.getActiveBookIdFor(null), 'other-id');
   });
 }

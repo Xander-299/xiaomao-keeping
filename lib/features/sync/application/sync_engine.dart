@@ -23,6 +23,7 @@ import 'package:yanxin/core/network/cloud_sync_gate.dart';
 import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/providers/data_epoch.dart';
 import 'package:yanxin/data/providers/database.dart';
+import 'package:yanxin/data/repositories/app_meta_repository.dart';
 import 'package:yanxin/features/sync/application/auth_controller.dart';
 import 'package:yanxin/features/sync/application/settings_sync.dart';
 import 'package:yanxin/features/sync/application/sync_conflicts.dart';
@@ -164,7 +165,6 @@ class SyncEngine {
     final meta = _ref.read(appMetaRepositoryProvider);
     final SyncApi api = _ref.read(syncApiProvider);
 
-    int cursor = int.tryParse(await meta.get(_cursorKey(email)) ?? '') ?? 0;
     int pushed = 0;
     int pulled = 0;
     int skipped = 0;
@@ -203,24 +203,16 @@ class SyncEngine {
             }
           }
 
-          bool hasMore = true;
-          int guard = 0;
-          while (hasMore && guard++ < 10) {
-            final SyncPullResult page = await api.pullChanges(
-              accessToken: token,
-              since: cursor,
-            );
-            for (final SyncChange change in page.changes) {
-              if (await _apply(db, change)) {
-                pulled++;
-              } else {
-                skipped++;
-              }
-            }
-            cursor = page.cursor;
-            hasMore = page.hasMore;
-            await meta.set(_cursorKey(email), '$cursor');
-          }
+          final pulledResult = await _pullPages(
+            db: db,
+            api: api,
+            meta: meta,
+            email: email,
+            token: token,
+            maxPages: 10,
+          );
+          pulled += pulledResult.pulled;
+          skipped += pulledResult.skipped;
         });
 
     final DateTime now = DateTime.now();
@@ -250,30 +242,21 @@ class SyncEngine {
     final meta = _ref.read(appMetaRepositoryProvider);
     final api = _ref.read(syncApiProvider);
 
-    int cursor = int.tryParse(await meta.get(_cursorKey(email)) ?? '') ?? 0;
     int pulled = 0;
     int skipped = 0;
     await _ref.read(authControllerProvider.notifier).authorized((
       String token,
     ) async {
-      bool hasMore = true;
-      int guard = 0;
-      while (hasMore && guard++ < 200) {
-        final SyncPullResult page = await api.pullChanges(
-          accessToken: token,
-          since: cursor,
-        );
-        for (final SyncChange change in page.changes) {
-          if (await _apply(db, change)) {
-            pulled++;
-          } else {
-            skipped++;
-          }
-        }
-        cursor = page.cursor;
-        hasMore = page.hasMore;
-        await meta.set(_cursorKey(email), '$cursor');
-      }
+      final result = await _pullPages(
+        db: db,
+        api: api,
+        meta: meta,
+        email: email,
+        token: token,
+        maxPages: 200,
+      );
+      pulled += result.pulled;
+      skipped += result.skipped;
     });
 
     final DateTime now = DateTime.now();
@@ -288,6 +271,43 @@ class SyncEngine {
     );
   }
 
+  /// 拉取循环（`syncNow` 与 `bootstrapPull` 共用，只差页数上限）。
+  ///
+  /// 为什么要有这个抽取：两处逻辑逐字相同，只在「最多几页」上不同 ——
+  /// 复制两份的话，改一处（比如 cursor 落盘时机）必然漏另一处。
+  Future<({int pulled, int skipped})> _pullPages({
+    required AppDatabase db,
+    required SyncApi api,
+    required AppMetaRepository meta,
+    required String email,
+    required String token,
+    required int maxPages,
+  }) async {
+    int cursor = int.tryParse(await meta.get(_cursorKey(email)) ?? '') ?? 0;
+    int pulled = 0;
+    int skipped = 0;
+    bool hasMore = true;
+    int guard = 0;
+    while (hasMore && guard++ < maxPages) {
+      final SyncPullResult page = await api.pullChanges(
+        accessToken: token,
+        since: cursor,
+      );
+      for (final SyncChange change in page.changes) {
+        if (await _apply(db, change)) {
+          pulled++;
+        } else {
+          skipped++;
+        }
+      }
+      cursor = page.cursor;
+      hasMore = page.hasMore;
+      // 每页落一次 cursor：中途失败时已拉到的数据不会重拉
+      await meta.set(_cursorKey(email), '$cursor');
+    }
+    return (pulled: pulled, skipped: skipped);
+  }
+
   // ── 上行：收集 dirty 行 ─────────────────────────────────────────────
 
   Future<List<SyncChange>> _collectDirty(AppDatabase db) async {
@@ -295,18 +315,17 @@ class SyncEngine {
 
     // P6.5：只推**当前账号**名下的账本与其子数据。
     // 不隔离就会把 A 的账推给 B 的云端（数据事故，SPEC-P6.5 §6 风险 3）。
+    // 账本范围来自仓储的唯一定义（`listVisible`），这里不再自己拼 owner 条件。
     final String? email = await _accountEmail();
     if (email == null) return out;
     final List<String> bookIds = <String>[
-      for (final Book b in await (db.select(db.books)
-            ..where((t) => t.ownerId.equals(email)))
-          .get())
+      for (final Book b in await _ref.read(bookRepositoryProvider).listVisible())
         b.id,
     ];
     if (bookIds.isEmpty) return out;
 
     final books = await (db.select(db.books)
-          ..where((t) => t.dirty.equals(1) & t.ownerId.equals(email)))
+          ..where((t) => t.dirty.equals(1) & t.id.isIn(bookIds)))
         .get();
     for (final Book row in books) {
       out.add(

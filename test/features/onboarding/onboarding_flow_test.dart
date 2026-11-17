@@ -106,7 +106,7 @@ void main() {
     final AppDatabase db = openTestDatabase();
     final BookRepository books = BookRepository(db);
     final String bookId = (await books.ensureDefaultBook()).id;
-    await books.setActiveBookId(bookId); // 老用户：active_book_id 有值
+    await books.setActiveBookIdFor(null, bookId); // 老用户：active_book_id 有值
 
     await pumpApp(tester, database: db, onboardingDone: false);
     await tester.pump(const Duration(milliseconds: 200));
