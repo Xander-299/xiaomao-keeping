@@ -140,23 +140,6 @@ class BookRepository {
         );
   }
 
-  /// 持久化的当前账本 id，从未设置过则 null。
-  Future<String?> getActiveBookId() async {
-    final row = await (_db.select(_db.schemaMeta)
-          ..where((t) => t.key.equals(kActiveBookKey)))
-        .getSingleOrNull();
-    return row?.value;
-  }
-
-  /// 写当前账本 id（已存在则覆盖，走参数绑定，不做字符串拼 SQL）。
-  Future<void> setActiveBookId(String id) {
-    return _db
-        .into(_db.schemaMeta)
-        .insertOnConflictUpdate(
-          SchemaMetaCompanion.insert(key: kActiveBookKey, value: id),
-        );
-  }
-
   /// 确保存在一个默认账本（首次启动 / 恢复备份 / 导入等入口调用）。
   ///
   /// P6.5 起跟随**当前账号**：已登录就建带 `ownerId` 的账本，未登录就建本机账本。
@@ -205,19 +188,30 @@ class BookRepository {
   Future<List<Book>> listVisible() async {
     final String? email = await activeAccountEmail();
     if (email == null && await hasSavedAccounts()) return const <Book>[];
-    return _selectVisible(email).get();
+    return email == null
+        ? _selectBooks(unownedOnly: true).get()
+        : _selectBooks(owner: email).get();
   }
 
-  /// 「可见账本」的唯一查询定义（排序与过滤只写一次）。
-  SimpleSelectStatement<$BooksTable, Book> _selectVisible(String? email) =>
-      _db.select(_db.books)
-        ..where((t) => email == null
-            ? t.ownerId.isNull() & t.deletedAt.isNull()
-            : t.ownerId.equals(email) & t.deletedAt.isNull())
-        ..orderBy(<OrderClauseGenerator<$BooksTable>>[
-          (t) => OrderingTerm.asc(t.sortOrder),
-          (t) => OrderingTerm.asc(t.createdAt),
-        ]);
+  /// 「账本列表」的唯一查询定义（过滤 + 排序只写一次）。
+  ///
+  /// 两种用法：按归属（`owner`）或「本机账本」（`unownedOnly`）；
+  /// 都要排除软删。加新的账本列表查询请走这里，别再复制 where/orderBy。
+  SimpleSelectStatement<$BooksTable, Book> _selectBooks({
+    String? owner,
+    bool unownedOnly = false,
+  }) => _db.select(_db.books)
+    ..where((t) => unownedOnly
+        ? t.ownerId.isNull() & t.deletedAt.isNull()
+        : t.ownerId.equals(owner ?? '') & t.deletedAt.isNull())
+    ..orderBy(<OrderClauseGenerator<$BooksTable>>[
+      (t) => OrderingTerm.asc(t.sortOrder),
+      (t) => OrderingTerm.asc(t.createdAt),
+    ]);
+
+  /// 某账号名下的账本（含软删过滤）。
+  Future<List<Book>> booksOwnedBy(String email) =>
+      _selectBooks(owner: email.trim().toLowerCase()).get();
 
   /// 可见范围里的第一个账本；没有就按当前范围建一个。
   ///
@@ -266,11 +260,7 @@ class BookRepository {
   /// 返回绑定的条数。
   Future<int> bindUnownedBooksTo(String email) async {
     final String normalized = email.trim().toLowerCase();
-    final int owned = await (_db.select(_db.books)
-          ..where((t) => t.ownerId.equals(normalized) & t.deletedAt.isNull()))
-        .get()
-        .then((List<Book> rows) => rows.length);
-    if (owned > 0) return 0;
+    if ((await booksOwnedBy(normalized)).isNotEmpty) return 0;
     final int now = DateTime.now().millisecondsSinceEpoch;
     return (_db.update(_db.books)..where((t) => t.ownerId.isNull())).write(
       BooksCompanion(
