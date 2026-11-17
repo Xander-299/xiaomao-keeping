@@ -232,7 +232,8 @@ List<CategoryBudgetRow> buildCategoryBudgets({
   for (final MapEntry<String, int> e in budgetByCategoryId.entries) {
     if (rows.any((CategoryBudgetRow r) => r.categoryId == e.key)) continue;
     final Category? c = byId[e.key];
-    if (c == null) continue;
+    // 收入类不参与预算（与主循环同口径；否则「工资」这种预算行会漏进来）
+    if (c == null || c.kind != 'expense') continue;
     rows.add(
       CategoryBudgetRow(
         categoryId: c.id,

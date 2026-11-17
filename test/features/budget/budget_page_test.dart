@@ -39,6 +39,8 @@ Future<AppDatabase> _pumpPage(WidgetTester tester) async {
 void main() {
   testWidgets('没有分类预算：显示空态引导与「沿用上月」', (WidgetTester tester) async {
     await _pumpPage(tester);
+    // 分类预算 provider 还要再查一轮库，等它落地
+    await pumpUntil(tester, find.textContaining('还没有分类预算'));
 
     expect(find.text('分类预算'), findsOneWidget);
     expect(find.textContaining('还没有分类预算'), findsOneWidget);
