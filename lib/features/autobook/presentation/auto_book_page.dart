@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yanxin/core/providers/data_epoch.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/core/utils/money.dart';
+import 'package:yanxin/data/providers/book_providers.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/features/autobook/application/auto_book_controller.dart';
 import 'package:yanxin/features/autobook/application/auto_book_notice.dart';
@@ -38,9 +39,12 @@ final autoBookNotificationsAllowedProvider = FutureProvider<bool>(
 );
 
 /// 最近一批自动记账（含跨启动的批次，来自 `schema_meta` KV）。
-final autoBookLatestBatchProvider = FutureProvider<AutoBookBatch?>((Ref ref) {
+/// 当前账本的最近一批（F7.20 余项：切账本后不再显示别的账本的批次）。
+final autoBookLatestBatchProvider = FutureProvider<AutoBookBatch?>((Ref ref) async {
   ref.watch(dataEpochProvider);
-  return ref.watch(autoBookBatchStoreProvider).latest();
+  // 账本切换要重取：否则撤销按钮指向的是另一个账本的流水
+  final String? bookId = await ref.watch(activeBookIdProvider.future);
+  return ref.watch(autoBookBatchStoreProvider).latestFor(bookId);
 });
 
 /// 原生侧活性诊断（服务是否被绑定 / 抓到过几条 / 上次 drain 情况）。

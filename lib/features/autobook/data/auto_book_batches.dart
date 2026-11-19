@@ -106,6 +106,24 @@ class AutoBookBatchStore {
     return all.isEmpty ? null : all.first;
   }
 
+  /// 指定账本的最近一批（F7.20 余项）。
+  ///
+  /// 为什么必须按账本取：批次是**全库共用一份 KV**（最多 3 条）。切到另一个账本后，
+  /// `/autobook` 的「最近一次自动记账」会显示**别的账本**的那批，用户点撤销必然得到
+  /// 「这批已撤销或不复存在」——信息是真的，但指向了错的账本。
+  ///
+  /// [bookId] 为 null（还没选定账本）时退回 [latest]。
+  /// ⚠️ 旧版批次 JSON 没有 `bookId` 字段：这里**不**把它们当兜底显示 ——
+  /// 宁可空着，也不要在当前账本里挂一批不属于它的流水。
+  Future<AutoBookBatch?> latestFor(String? bookId) async {
+    if (bookId == null) return latest();
+    final List<AutoBookBatch> all = await readAll();
+    for (final AutoBookBatch b in all) {
+      if (b.bookId == bookId) return b;
+    }
+    return null;
+  }
+
   Future<AutoBookBatch?> byId(String batchId) async {
     final List<AutoBookBatch> all = await readAll();
     for (final AutoBookBatch b in all) {
