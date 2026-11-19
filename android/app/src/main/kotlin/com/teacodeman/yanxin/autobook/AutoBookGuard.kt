@@ -67,13 +67,6 @@ object AutoBookGuard {
         }
     }
 
-    /** 取消守护（用户在 `/autobook` 页显式关闭时用）。 */
-    fun cancel(context: Context) {
-        val am = context.getSystemService(AlarmManager::class.java) ?: return
-        am.cancel(tickIntent(context))
-        Log.i(TAG, "补抓守护已取消")
-    }
-
     private fun tickIntent(context: Context): PendingIntent {
         val intent = Intent(context, TickReceiver::class.java).setAction(ACTION_TICK)
         return PendingIntent.getBroadcast(

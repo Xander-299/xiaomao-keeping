@@ -68,8 +68,13 @@ class AutoBookDiagnostics {
   final int skippedEmpty;
   final int skippedDedup;
 
-  /// 被丢弃的**组摘要**条目数（`[N条]…`）：聚合通知的汇总条目，丢了才对，
-  /// 留着会把同一笔支付记两遍（2026-10-08 真机排查新增）。
+  /// 被丢弃的**组摘要**条目数。
+  ///
+  /// 判据只有系统标志（`FLAG_GROUP_SUMMARY` / `android.isGroupSummary`），
+  /// **不是**文案里的 `[N条]` 前缀 —— 2026-10-08 真机取证（`dumpsys notification`
+  /// 的 Group summaries 段没有微信、flags 不含组摘要位、tickerText 无前缀）证明
+  /// 那个前缀只是 MIUI 显示层加的，整条通知就是那笔支付本身。
+  /// 早期注释「留着会记两遍」已被推翻：按前缀过滤会**漏记**微信支付。
   final int skippedGroupSummary;
 
   /// 最近一次被 Dart 取走队列的时间与条数。
