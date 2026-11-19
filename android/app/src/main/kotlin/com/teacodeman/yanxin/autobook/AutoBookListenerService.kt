@@ -88,11 +88,47 @@ class AutoBookListenerService : NotificationListenerService() {
          */
         fun catchUpNow(context: Context?): Int {
             val svc = instance ?: run {
-                if (context != null) AutoBookDiagnostics.noteCatchUpUnbound(context)
+                if (context != null) {
+                    AutoBookDiagnostics.noteCatchUpUnbound(context)
+                    // ⚠️ 真机 2026-11-19 补的一条：**从来没被绑定过**时不会有
+                    // onListenerDisconnected，光靠断连重绑救不回来（当时设备上就是这个状态：
+                    // `enabled_notification_listeners` 里有条目、`Live notification listeners`
+                    // 里没有 → 补抓永远 -1）。所以发现拿不到实例时也主动请求一次重绑。
+                    tryRebind(context, "catchUp-unbound")
+                }
                 Log.w(TAG, "catchUpNow：服务实例不存在（系统没绑定）→ 返回 -1")
                 return -1
             }
             return svc.catchUp("channel")
+        }
+
+        /** 上一次主动 requestRebind 的时刻（防抖用）。 */
+        @Volatile
+        private var lastRebindAtMs = 0L
+
+        /** 两次重绑之间至少隔这么久 —— 补抓每次回前台都会调，不能不设防地刷系统。 */
+        private const val REBIND_MIN_INTERVAL_MS = 60_000L
+
+        /**
+         * 主动向系统请求重绑（F7.20）。
+         *
+         * 官方允许随时调用；已经绑着时是空操作。**带 60s 防抖**：
+         * 拿不到实例的路径每次 drain 都会命中，不防抖就是在后台反复敲系统。
+         * 结果（成功请求 / 抛异常 + 计数）落进诊断，页面才能说「试过了、没救回来」。
+         */
+        fun tryRebind(context: Context, reason: String) {
+            val now = System.currentTimeMillis()
+            if (now - lastRebindAtMs < REBIND_MIN_INTERVAL_MS) return
+            lastRebindAtMs = now
+            val ok = try {
+                requestRebind(ComponentName(context, AutoBookListenerService::class.java))
+                true
+            } catch (t: Throwable) {
+                Log.w(TAG, "requestRebind($reason) 失败：$t")
+                false
+            }
+            Log.i(TAG, "requestRebind($reason) → ${if (ok) "已请求" else "请求失败"}")
+            AutoBookDiagnostics.noteRebind(context, ok)
         }
     }
 
@@ -129,23 +165,12 @@ class AutoBookListenerService : NotificationListenerService() {
     }
 
     /**
-     * 向系统请求重新绑定本监听服务（断连自愈，F7.20）。
+     * 断连自愈（F7.20）：向系统请求重新绑定本监听服务。
      *
-     * 官方允许在 [onListenerDisconnected] 里调用；系统侧若因后台限制不再绑定，
-     * 这次请求不一定成功 —— 所以结果必须落进诊断（`rebindAttempts` / `lastRebindOk`），
-     * 让 `/autobook` 能说清「试过了、没救回来」，而不是又一次静默。
+     * 重绑救不回 posted 投递（2026-10-09 实测），但能恢复 `catchUp`。
+     * 防抖与诊断都在 [tryRebind] 里 —— 同一个动作在「从未绑定」路径上也要用。
      */
-    private fun rebindNow(reason: String) {
-        val ok = try {
-            requestRebind(ComponentName(this, AutoBookListenerService::class.java))
-            true
-        } catch (t: Throwable) {
-            Log.w(TAG, "requestRebind($reason) 失败：$t")
-            false
-        }
-        Log.i(TAG, "requestRebind($reason) → ${if (ok) "已请求" else "请求失败"}")
-        AutoBookDiagnostics.noteRebind(this, ok)
-    }
+    private fun rebindNow(reason: String) = tryRebind(this, reason)
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn == null) return
