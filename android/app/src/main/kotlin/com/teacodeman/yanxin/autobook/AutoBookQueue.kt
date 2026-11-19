@@ -146,7 +146,13 @@ object AutoBookQueue {
      *
      * 只用于**临时性失败**（账本未就绪 / 写库异常 / 进程被杀）；解析不出的行
      * 由 Dart 侧判定后直接丢弃，不会走这里（否则会无限重试）。
-     * 回写的行更早，放在队首；超出上限时丢最旧的（与 [prune] 同语义）。
+     * 回写的行更早，放在队首。
+     *
+     * ⚠️ **超限时先丢掉 `existing` 里最旧的，不能丢 `fresh`**（F7.20，2026-11-19）：
+     * 老实现是 `merged.takeLast(MAX_LINES)`，而 `fresh` 在队首 → 一旦 `fresh + existing`
+     * 超过 500 行，被裁掉的恰恰是**这次刚回写、还没入账**的通知，等于静默丢账。
+     * `fresh` 是「上一轮已经取走但没来得及入账」的数据，比队列里排队的更旧也更要紧 ——
+     * 它已经在内存外没有任何副本了。
      */
     @Synchronized
     fun restore(context: Context, lines: List<String>) {
@@ -160,7 +166,13 @@ object AutoBookQueue {
                 emptyList()
             }
             val merged = fresh + existing
-            val kept = if (merged.size > MAX_LINES) merged.takeLast(MAX_LINES) else merged
+            val kept = if (merged.size > MAX_LINES) {
+                // fresh 优先保留；剩下的额度给 existing 的**队尾**（越靠后越新）
+                val room = (MAX_LINES - fresh.size).coerceAtLeast(0)
+                if (room == 0) fresh.takeLast(MAX_LINES) else fresh + existing.takeLast(room)
+            } else {
+                merged
+            }
             f.writeText(kept.joinToString("\n") + "\n")
         } catch (_: Exception) {
             // 回写失败只能接受丢失：指纹去重保证不会因此重复入账

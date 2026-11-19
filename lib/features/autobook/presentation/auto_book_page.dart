@@ -4,7 +4,9 @@
 /// 1. 显示**权限状态**（通知使用权 / 通知权限）并提供一键跳转 —— 通知使用权不弹系统对话框，
 ///    用户必须自己去系统设置开，所以这一页是**成败关键**；
 /// 2. 「最近一次自动记账」+ 撤销（**不依赖通知**的兜底入口，通知被系统屏蔽时仍可用）；
-/// 3. 说明识别范围、忽略规则与隐私（本 App 无 `INTERNET` 权限，数据只落本地）。
+/// 3. 说明识别范围、忽略规则与隐私（**自 v0.8.7 起 App 有 `INTERNET`**，为了云同步 /
+///    云备份 —— 所以隐私口径是「不主动上传账单数据」，**不是**「没有网络权限」；
+///    F7.20 订正：旧文案与权限表不符，属对外错误声明）。
 library;
 
 import 'dart:async';
@@ -270,7 +272,8 @@ class _AutoBookPageState extends ConsumerState<AutoBookPage>
                   const SizedBox(height: 10),
                   Text(
                     listenerOn
-                        ? '已开启：微信 / 支付宝的支付通知会被识别，打开 App 时自动入账。'
+                        ? '已开启：微信 / 支付宝的支付通知会被识别；服务连着时，'
+                              '打开本 App 会自动补记。'
                         : '未开启时不会有任何后台行为 —— 不会监听、不会记账。'
                               '开启后本 App 只读「支付通知」的文案，数据只落本机。',
                     style: TextStyle(
@@ -340,8 +343,10 @@ class _AutoBookPageState extends ConsumerState<AutoBookPage>
               color: p.brandTint,
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
               child: Text(
-                '本 App 没有申请网络权限（Android 没有 INTERNET 权限就发不出任何数据）。'
-                '通知文案、账单、流水全部只存在这台手机上，不上传、不联网。',
+                // ⚠️ 别再写「没有申请网络权限」：自 v0.8.7（云同步）起 manifest 里有
+                // INTERNET，release 包的这个声明是假的（F7.20）。口径改成「不主动上传」。
+                '通知文案、账单、流水默认只存在这台手机上，不会被上传；'
+                '只有你自己打开云同步 / 云备份时，才会把这台设备的账本加密传输到你自己的账号。',
                 style: TextStyle(
                   fontSize: 12,
                   height: 1.6,

@@ -42,6 +42,12 @@ class AutoBookDiagnostics {
     this.lastRemovedAtMs = 0,
     this.tickCatchUpTotal = 0,
     this.lastTickCatchUpAtMs = 0,
+    this.catchUpUnbound = false,
+    this.catchUpUnboundTotal = 0,
+    this.lastCatchUpUnboundAtMs = 0,
+    this.rebindAttempts = 0,
+    this.lastRebindAtMs = 0,
+    this.lastRebindOk = false,
   });
 
   /// 系统当前是否绑定着监听服务。
@@ -113,6 +119,31 @@ class AutoBookDiagnostics {
   /// 取快照时的设备时间（页面据此算「多久之前」，不依赖端上时钟一致性）。
   final int nowMs;
 
+  // ---------------------------------------------------------------------
+  // F7.20 新增：补抓通道的死活（2026-11-19 用户反馈「release 包一条都记不上」）
+  //
+  // `catchUp` 拿不到服务实例时原生返回 -1。以前 Dart 侧把它折成 0，
+  // 「系统没绑定服务」与「通知栏是空的」塌缩成同一个值 —— 页面于是显示
+  // 「打开 App 一次就会补记上」，而那条路根本不通。
+  // ---------------------------------------------------------------------
+
+  /// 最近一次补抓是否因「系统没绑定监听服务」而失败（原生 `lastCatchUpUnbound`）。
+  final bool catchUpUnbound;
+  final int catchUpUnboundTotal;
+  final int lastCatchUpUnboundAtMs;
+
+  /// 断连后主动 `requestRebind` 的次数与最后一次结果。
+  final int rebindAttempts;
+  final int lastRebindAtMs;
+  final bool lastRebindOk;
+
+  /// 「补抓这条唯一还活着的通道也不通」。
+  ///
+  /// 判据只有一条：原生侧最近一次 `catchUpNow()` 拿不到实例。
+  /// 这比 [listenerLooksDead]（靠历史时间窗推断）直接得多 ——
+  /// 系统从未回调过 `onListenerConnected` 时也能判定。
+  bool get catchUpChannelDead => catchUpUnbound;
+
   /// 是否从未抓到过任何通知（判断「服务白开」）。
   bool get neverCaptured => capturedTotal == 0;
 
@@ -175,6 +206,12 @@ class AutoBookDiagnostics {
         lastRemovedAtMs: _asInt(m['lastRemovedAtMs']),
         tickCatchUpTotal: _asInt(m['tickCatchUpTotal']),
         lastTickCatchUpAtMs: _asInt(m['lastTickCatchUpAtMs']),
+        catchUpUnbound: m['lastCatchUpUnbound'] == true,
+        catchUpUnboundTotal: _asInt(m['catchUpUnboundTotal']),
+        lastCatchUpUnboundAtMs: _asInt(m['lastCatchUpUnboundAtMs']),
+        rebindAttempts: _asInt(m['rebindAttempts']),
+        lastRebindAtMs: _asInt(m['lastRebindAtMs']),
+        lastRebindOk: m['lastRebindOk'] == true,
       );
     } catch (_) {
       return null;

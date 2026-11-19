@@ -74,10 +74,15 @@ class AutoBookBridge {
   ///
   /// ⚠️ **必须在 [drainQueue] 之前调用**（补抓是往队列里写，取队列在后面）。
   ///
-  /// @return 补入队条数；服务未被系统绑定 / 非 Android → 0。
+  /// @return 补入队条数；**`-1` = 补抓通道不通**（系统没有把监听服务绑上）；
+  ///   非 Android / 通道异常 → 0（那才是「没有可补的」）。
+  ///
+  /// ⚠️ **不要把 `-1` 折成 0**（F7.20，2026-11-19）：「服务没绑定」与「通知栏是空的」
+  /// 是两件事，折起来以后页面只能看到 0，于是把「一条都记不上」解释成「今天没支付」。
+  /// 诊断侧另有 `lastCatchUpUnbound` 落盘，这里保留原始值只是为了让调用方可断言。
   Future<int> catchUp() async {
     final Object? res = await _invoke<Object?>('catchUp');
-    if (res is int && res > 0) return res;
+    if (res is int) return res;
     return 0;
   }
 

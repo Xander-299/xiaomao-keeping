@@ -114,6 +114,38 @@ object AutoBookDiagnostics {
     @Volatile var lastTickCatchUpAtMs: Long = 0L
         private set
 
+    /**
+     * **补抓通道**（F7.20 新增，2026-11-19）。
+     *
+     * 为什么单独记：`catchUp` 是 posted 推送不投递时**唯一**还能救回通知的通道，
+     * 而它要求服务确实被系统绑定。`catchUpNow()` 拿不到实例时返回 `-1`，
+     * 这个状态以前被 Dart 侧折成 `0`（= 通知栏为空），于是「服务没绑定」看起来和
+     * 「今天没支付」一模一样 —— 用户与开发者都被误导。
+     *
+     * 现在：Dart 保留 `-1` 语义，同时这里落一条 `lastCatchUpUnbound`，
+     * `/autobook` 的诊断块据此单列「补抓通道：服务未绑定」。
+     */
+    @Volatile var lastCatchUpUnbound: Boolean = false
+        private set
+    @Volatile var lastCatchUpUnboundAtMs: Long = 0L
+        private set
+    @Volatile var catchUpUnboundTotal: Int = 0
+        private set
+
+    /**
+     * 断连后主动 `requestRebind` 的次数与结果（F7.20 新增）。
+     *
+     * 重绑救不回 posted 投递（2026-10-09 实测），但**能恢复 `catchUp`** ——
+     * 而 catchUp 才是现在的主防线。所以断开时重绑是必须尝试的自愈动作，
+     * 失败了也要留下证据，而不是只打一行日志。
+     */
+    @Volatile var rebindAttempts: Int = 0
+        private set
+    @Volatile var lastRebindAtMs: Long = 0L
+        private set
+    @Volatile var lastRebindOk: Boolean = false
+        private set
+
     /** 本进程启动时盘上的值（每进程只读一次），只作为累计值的**基线**。 */
     @Volatile private var base: JSONObject = JSONObject()
 
@@ -128,6 +160,8 @@ object AutoBookDiagnostics {
     private var addCatchUpAdded = 0
     private var addRemovedCapture = 0
     private var addTickCatchUp = 0
+    private var addCatchUpUnbound = 0
+    private var addRebind = 0
 
     /** 本进程是否已读过盘。 */
     private var loaded = false
@@ -185,6 +219,14 @@ object AutoBookDiagnostics {
         if (lastTickCatchUpAtMs == 0L) {
             lastTickCatchUpAtMs = base.optLong("lastTickCatchUpAtMs", 0L)
         }
+        if (lastCatchUpUnboundAtMs == 0L) {
+            lastCatchUpUnboundAtMs = base.optLong("lastCatchUpUnboundAtMs", 0L)
+            lastCatchUpUnbound = base.optBoolean("lastCatchUpUnbound", false)
+        }
+        if (lastRebindAtMs == 0L) {
+            lastRebindAtMs = base.optLong("lastRebindAtMs", 0L)
+            lastRebindOk = base.optBoolean("lastRebindOk", false)
+        }
         recomputeTotals()
     }
 
@@ -205,6 +247,8 @@ object AutoBookDiagnostics {
         catchUpAddedTotal = b.optInt("catchUpAddedTotal", 0) + addCatchUpAdded
         removedCaptureTotal = b.optInt("removedCaptureTotal", 0) + addRemovedCapture
         tickCatchUpTotal = b.optInt("tickCatchUpTotal", 0) + addTickCatchUp
+        catchUpUnboundTotal = b.optInt("catchUpUnboundTotal", 0) + addCatchUpUnbound
+        rebindAttempts = b.optInt("rebindAttempts", 0) + addRebind
     }
 
     /**
@@ -289,11 +333,41 @@ object AutoBookDiagnostics {
      */
     fun noteCatchUp(context: Context, active: Int, added: Int) {
         load(context)
+        // 真的跑起来一轮 = 服务确实绑上了 → 清掉「补抓通道不通」的旧结论
+        lastCatchUpUnbound = false
         lastCatchUpAtMs = System.currentTimeMillis()
         lastCatchUpActive = active
         lastCatchUpAdded = added
         addCatchUp++
         addCatchUpAdded += added
+        recomputeTotals()
+        persist(context)
+    }
+
+    /**
+     * 补抓拿不到服务实例（`catchUpNow()` 返回 `-1`）。
+     *
+     * **必然落盘**：这是「设置里开着、系统其实没绑定」唯一的直接证据，
+     * 而 App 可能马上被 ROM 杀掉，内存里的标记留不下来。
+     */
+    fun noteCatchUpUnbound(context: Context) {
+        load(context)
+        val wasUnbound = lastCatchUpUnbound
+        lastCatchUpUnbound = true
+        lastCatchUpUnboundAtMs = System.currentTimeMillis()
+        addCatchUpUnbound++
+        recomputeTotals()
+        // 只在状态**翻转**时落盘：补抓在 App 每次回前台都会调，服务没绑定时会一直报 −1，
+        // 每次都写盘等于后台常驻写 Flash（同一类问题见 F7.20 §3.6）。
+        if (!wasUnbound) persist(context)
+    }
+
+    /** 断连后尝试重绑的结果（F7.20）。 */
+    fun noteRebind(context: Context, ok: Boolean) {
+        load(context)
+        lastRebindAtMs = System.currentTimeMillis()
+        lastRebindOk = ok
+        addRebind++
         recomputeTotals()
         persist(context)
     }
@@ -337,6 +411,12 @@ object AutoBookDiagnostics {
             .put("lastRemovedAtMs", lastRemovedAtMs)
             .put("tickCatchUpTotal", tickCatchUpTotal)
             .put("lastTickCatchUpAtMs", lastTickCatchUpAtMs)
+            .put("lastCatchUpUnbound", lastCatchUpUnbound)
+            .put("lastCatchUpUnboundAtMs", lastCatchUpUnboundAtMs)
+            .put("catchUpUnboundTotal", catchUpUnboundTotal)
+            .put("rebindAttempts", rebindAttempts)
+            .put("lastRebindAtMs", lastRebindAtMs)
+            .put("lastRebindOk", lastRebindOk)
             .put("nowMs", System.currentTimeMillis())
             .toString()
     }

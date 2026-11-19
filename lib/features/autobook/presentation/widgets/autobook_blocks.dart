@@ -29,7 +29,8 @@ class _LatestBatchBlock extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '还没有自动记过账。开启通知使用权后，下一次支付就会出现在这里。',
+              '还没有自动记过账。识别到支付通知后，这里会显示笔数与合计 ——'
+              '若一直为空，先看下面的诊断块卡在哪一层。',
               style: TextStyle(
                 fontSize: 12,
                 height: 1.5,
@@ -126,6 +127,8 @@ class _DiagnosticsBlock extends StatelessWidget {
         _InfoLine('抓取统计', _statsText(d)),
         const ToonDashedLine(),
         _InfoLine('采集通道', _channelText(d)),
+        const ToonDashedLine(),
+        _InfoLine('补抓通道', _catchUpText(d)),
         const SizedBox(height: 10),
         Text(
           _hint(d),
@@ -187,6 +190,21 @@ class _DiagnosticsBlock extends StatelessWidget {
     return parts.join(' · ');
   }
 
+  /// **补抓通道**（F7.20 新增）。
+  ///
+  /// 为什么单独一行：「监听服务 = 未绑定」只说明**当前**没连上，而补抓是否可用
+  /// 决定了「打开 App 一次能不能补记上」。用户看到的「设置里开着却一条都记不上」，
+  /// 断点就在这条通道上 —— 它与「实时推送不可用」是两件不同的事。
+  static String _catchUpText(AutoBookDiagnostics? d) {
+    if (d == null) return '—';
+    if (!d.catchUpChannelDead) return '正常';
+    // 试过重绑仍不通 —— 把「试过了」也摆出来，免得用户以为我们什么都没做
+    final String tried = d.rebindAttempts > 0
+        ? ' · 已尝试重绑 ${d.rebindAttempts} 次未成功'
+        : '';
+    return '不通（系统未绑定监听服务）$tried';
+  }
+
   /// 按当前证据给**一句可执行的**提示（这是「失败可懂」的核心）。
   String _hint(AutoBookDiagnostics? d) {
     if (!listenerOn) {
@@ -194,6 +212,13 @@ class _DiagnosticsBlock extends StatelessWidget {
     }
     if (d == null) {
       return '读不到系统状态（可能不在 Android 上运行）。';
+    }
+    if (d.catchUpChannelDead) {
+      // 最狠的一种断法：设置里显示已开启，但系统没绑定 → 实时推送与补抓**都不通**。
+      // 此时绝不能再说「打开 App 一次就会补记上」，那条通道根本不存在。
+      return '系统当前没有真正绑定监听服务 —— 设置里看着是「已开启」，但连接没建起来'
+          '（国产 ROM 常见）。这种状态下实时推送和补记都不会发生：'
+          '请在系统设置里把「通知使用权」关掉再打开一次；仍不行就重启手机。';
     }
     if (!d.listenerConnected && d.lastConnectedAtMs > 0) {
       return '设置里开着，但系统当前没有绑定监听服务 —— 常见于国产 ROM 的后台限制。'
@@ -215,8 +240,10 @@ class _DiagnosticsBlock extends StatelessWidget {
     // 且支付通知只活 26 秒 → **唯一的可靠时机就是用户自己打开本 App**。
     // 这段话必须说清楚，否则用户以为「后台在记」，结果漏账还不知道为什么。
     if (d.postedChannelUnavailable && d.tickCatchUpTotal == 0) {
-      return '这台手机的后台自动记账被系统限制了（国产 ROM 常见）——'
-          '支付后请打开本 App 一次，会立刻把通知里的账单补记上。';
+      // 走到这里说明补抓通道是活的（上面那条 catchUpChannelDead 已经拦掉了不通的情况），
+      // 「打开 App 一次」才真的能补记 —— 文案别越过证据。
+      return '这台手机的后台自动记账被系统限制了（国产 ROM 常见），但补记通道还在 ——'
+          '支付后请打开本 App 一次，会把通知栏里还在的账单补记上。';
     }
     if (d.postedChannelUnavailable) {
       return '系统不投递实时通知（国产 ROM 常见），已改由定时补抓采集 ——'
