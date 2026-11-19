@@ -92,7 +92,7 @@ class AutoBookChannel(private val activity: Activity) : MethodChannel.MethodCall
             // 补抓：通知在服务未连接期间发布时系统**不会补发回调**（真机实测：支付宝付款
             // 通知早于服务连接 1 分 51 秒 → 永久丢失）。App 每次回前台、drain 之前调一次，
             // 把通知栏里仍存在的通知捞回队列。返回补入队条数；服务未绑定返回 -1。
-            "catchUp" -> result.success(AutoBookListenerService.catchUpNow())
+            "catchUp" -> result.success(AutoBookListenerService.catchUpNow(activity))
 
             // 补抓守护排期：闹钟是「一次性 + 每次醒来续期」的，进程被杀就没人续期 →
             // App 每次启动 / 回前台都补一次排期，保证「进程活着期间守护在转」

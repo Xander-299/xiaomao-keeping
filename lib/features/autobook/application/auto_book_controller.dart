@@ -51,7 +51,12 @@ class AutoBookDrainResult {
   final bool restored;
 
   /// 本次**补抓**（通知栏里仍存在、但服务未连接期间漏掉的通知）入队的条数。
+  ///
+  /// `-1` = 补抓通道不通（系统没绑定监听服务），与「补到 0 条」不同（F7.20）。
   final int caughtUp;
+
+  /// 补抓这次压根没跑起来（服务未绑定）。
+  bool get catchUpUnbound => caughtUp < 0;
 
   /// 本批（imported > 0 时非空）。
   final AutoBookBatch? batch;

@@ -97,7 +97,7 @@ object AutoBookGuard {
      */
     fun runTick(context: Context, reason: String) {
         AutoBookDiagnostics.noteTickCatchUp(context)
-        val added = AutoBookListenerService.catchUpNow()
+        val added = AutoBookListenerService.catchUpNow(context)
         Log.i(TAG, "tick($reason) 补抓返回=$added（-1 = 服务未绑定）")
         schedule(context)
     }

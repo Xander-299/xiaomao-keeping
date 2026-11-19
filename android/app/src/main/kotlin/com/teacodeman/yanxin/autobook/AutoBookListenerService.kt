@@ -1,6 +1,8 @@
 package com.teacodeman.yanxin.autobook
 
 import android.app.Notification
+import android.content.ComponentName
+import android.content.Context
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -78,9 +80,18 @@ class AutoBookListenerService : NotificationListenerService() {
          * 供 Dart 侧在**每次 drain 之前**调用：把通知栏里仍存在、但服务当时没接到的通知补入队。
          *
          * @return 补入队条数；服务未被系统绑定（拿不到实例）时返回 `-1`。
+         *
+         * ⚠️ **`-1` 必须原样传出去**（F7.20，2026-11-19）：它表示「补抓这条通道根本不通」，
+         * 与「通知栏是空的（0）」是两件事。上游 `auto_book_bridge.dart` 以前把 `<=0` 折成 0，
+         * 于是「设置里开着、系统没绑定」在界面上看起来和「今天没支付」一模一样。
+         * 拿不到实例时顺手落一条诊断（`lastCatchUpUnbound`），让 `/autobook` 能点名这个断点。
          */
-        fun catchUpNow(): Int {
-            val svc = instance ?: return -1
+        fun catchUpNow(context: Context?): Int {
+            val svc = instance ?: run {
+                if (context != null) AutoBookDiagnostics.noteCatchUpUnbound(context)
+                Log.w(TAG, "catchUpNow：服务实例不存在（系统没绑定）→ 返回 -1")
+                return -1
+            }
             return svc.catchUp("channel")
         }
     }
@@ -110,10 +121,30 @@ class AutoBookListenerService : NotificationListenerService() {
         super.onListenerDisconnected()
         AutoBookDiagnostics.noteConnected(this, false)
         Log.w(TAG, "onListenerDisconnected → 此后实时通知不再送达")
-        // ⚠️ 此刻仍可调用 requestRebind（官方允许），但实测（2026-10-09 Redmi K50）
-        // **重绑恢复不了 posted 推送投递** —— 只能恢复连接状态与主动拉取。
-        // 所以这里不指望它救 posted，只留一条日志说明现状，避免后人误以为漏了自愈。
-        Log.w(TAG, "onListenerDisconnected：注意——实测重绑无法恢复 posted 投递，主防线是 catchUp 守护")
+        // ⚠️ 实测（2026-10-09 Redmi K50）：重绑**恢复不了 posted 推送投递** ——
+        // 所以这里不指望它救实时回调。但重绑**能恢复 `catchUp`**（`activeNotifications`
+        // 需要系统真的绑着服务），而 posted 不投递时 catchUp 才是唯一还在工作的通道。
+        // 不重绑 = 放弃唯一可行的自愈手段（F7.20：用户机器上就是「设置里开着但没绑定」）。
+        rebindNow("disconnect")
+    }
+
+    /**
+     * 向系统请求重新绑定本监听服务（断连自愈，F7.20）。
+     *
+     * 官方允许在 [onListenerDisconnected] 里调用；系统侧若因后台限制不再绑定，
+     * 这次请求不一定成功 —— 所以结果必须落进诊断（`rebindAttempts` / `lastRebindOk`），
+     * 让 `/autobook` 能说清「试过了、没救回来」，而不是又一次静默。
+     */
+    private fun rebindNow(reason: String) {
+        val ok = try {
+            requestRebind(ComponentName(this, AutoBookListenerService::class.java))
+            true
+        } catch (t: Throwable) {
+            Log.w(TAG, "requestRebind($reason) 失败：$t")
+            false
+        }
+        Log.i(TAG, "requestRebind($reason) → ${if (ok) "已请求" else "请求失败"}")
+        AutoBookDiagnostics.noteRebind(this, ok)
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -189,10 +220,12 @@ class AutoBookListenerService : NotificationListenerService() {
             activeNotifications
         } catch (t: Throwable) {
             Log.w(TAG, "catchUp($reason) 取 activeNotifications 失败：$t")
+            AutoBookDiagnostics.noteCatchUpUnbound(this)
             return -1
         }
         if (active == null) {
             Log.w(TAG, "catchUp($reason) 服务未连接，跳过")
+            AutoBookDiagnostics.noteCatchUpUnbound(this)
             return -1
         }
         val now = System.currentTimeMillis()
@@ -255,8 +288,10 @@ class AutoBookListenerService : NotificationListenerService() {
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
         val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString().orEmpty()
-        // 三个正文位全空的（如纯进度通知）没有解析价值
-        if (title.isEmpty() && text.isEmpty() && bigText.isEmpty()) {
+        // 四个正文位全空的（如纯进度通知）没有解析价值。
+        // ⚠️ F7.20：`subText` 也算正文位 —— 只带 EXTRA_SUB_TEXT 的通知以前会被判成
+        // EMPTY 丢掉并计入 `skippedEmpty`，排查时会被误读成「通知确实是空的」。
+        if (title.isEmpty() && text.isEmpty() && bigText.isEmpty() && subText.isEmpty()) {
             AutoBookDiagnostics.noteSkippedEmpty()
             return Decision.EMPTY
         }
