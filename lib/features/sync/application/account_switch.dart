@@ -26,6 +26,17 @@ enum AccountSwitchStage { backingUp, switching, restoring, pulling }
 
 final accountSwitcherProvider = Provider<AccountSwitcher>(AccountSwitcher.new);
 
+/// 一个切号步骤：进度阶段 + 要做的事。
+///
+/// 抽出来是为了让「有几步、先后顺序、哪步可能不存在（首次登录没有备份）」一眼看全，
+/// 而不是埋在一串 `onStage?..; await ...;` 里。
+class _SwitchStep {
+  const _SwitchStep(this.stage, this.run);
+
+  final AccountSwitchStage stage;
+  final Future<void> Function() run;
+}
+
 class AccountSwitcher {
   AccountSwitcher(this._ref);
 
@@ -39,30 +50,39 @@ class AccountSwitcher {
     final AuthController auth = _ref.read(authControllerProvider.notifier);
     final AuthState? before = _ref.read(authControllerProvider).value;
     final Email? oldEmail = before?.signedIn == true ? before?.email : null;
-    final bool wasEnabled =
-        _ref.read(cloudSyncEnabledProvider).value ?? false;
+    // ⚠️ 必须 await：刚启动时开关还是 AsyncLoading，读 `.value` 会得到 null；
+    // 这时临时 setEnabled(true)，随后 build() 完成又会把状态覆盖回落库值 →
+    // 闸门在「恢复备份」那一步判 disabledByUser（真机上表现为切号偶发失败）。
+    final bool wasEnabled = await _ref.read(cloudSyncEnabledProvider.future);
 
     // 切号统一无视开关：临时打开，结束后恢复（否则闸门会在建连前拒掉）。
     if (!wasEnabled) {
       await _ref.read(cloudSyncEnabledProvider.notifier).setEnabled(true);
     }
 
+    // 步骤表：**顺序 = 执行顺序**，每步自带进度阶段。增删一步只改这里，
+    // 不用再在 try/catch 里挪代码（回滚仍是统一的：任一步抛都退回原账号）。
+    final List<_SwitchStep> steps = <_SwitchStep>[
+      // ① 走前备份旧账号（P6.3 全量备份同一套）—— 失败就停在原账号。
+      //    没有旧账号（首次登录）时这一步不存在，所以用条件列表而不是 if 包一层。
+      if (oldEmail != null)
+        _SwitchStep(AccountSwitchStage.backingUp, auth.uploadCurrentBackup),
+      // ② 切 session（换 token + 账号列表 + 账本范围）
+      _SwitchStep(AccountSwitchStage.switching, () => auth.switchTo(email)),
+      // ③ 新账号若在云端有备份，先整份恢复（不受增量 2000 条上限影响）
+      _SwitchStep(AccountSwitchStage.restoring, _restoreIfAny),
+      // ④ 再拉增量，补齐备份之后的改动
+      _SwitchStep(
+        AccountSwitchStage.pulling,
+        () => _ref.read(syncEngineProvider).bootstrapPull(),
+      ),
+    ];
+
     try {
-      if (oldEmail != null) {
-        onStage?.call(AccountSwitchStage.backingUp);
-        // ① 走前备份旧账号（P6.3 全量备份同一套）—— 失败就停在原账号
-        await auth.uploadCurrentBackup();
+      for (final _SwitchStep step in steps) {
+        onStage?.call(step.stage);
+        await step.run();
       }
-
-      onStage?.call(AccountSwitchStage.switching);
-      await auth.switchTo(email);
-
-      onStage?.call(AccountSwitchStage.restoring);
-      await _restoreIfAny();
-
-      onStage?.call(AccountSwitchStage.pulling);
-      await _ref.read(syncEngineProvider).bootstrapPull();
-
       _refreshAfterSwitch();
     } catch (e) {
       await _rollback(auth, oldEmail);

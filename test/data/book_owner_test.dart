@@ -20,7 +20,7 @@ Future<void> _signInAs(AppDatabase db, String email) async {
     encodeSavedAccounts(<SavedAccount>[
       SavedAccount(
         email: Email.tryParse(email)!,
-        lastUsedAt: DateTime.now().millisecondsSinceEpoch,
+        lastUsedAt: DateTime.now(),
       ),
     ]),
   );
