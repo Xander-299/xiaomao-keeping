@@ -22,6 +22,7 @@ import '../../../data/providers/book_providers.dart';
 import '../../../data/providers/category_providers.dart';
 import '../../../data/providers/database.dart';
 import '../../assistant/application/finance_answer.dart';
+import '../../assistant/application/finance_intent.dart';
 import '../../receipt/application/receipt_draft.dart';
 import '../../receipt/application/receipt_write.dart';
 import '../../receipt/data/mlkit_ocr_engine.dart';
@@ -152,6 +153,9 @@ final chatProvider = NotifierProvider<ChatController, ChatState>(
 );
 
 class ChatController extends Notifier<ChatState> {
+  /// 上一句问到的区间 / 方向（多轮追问用）。会话级状态，不放进消息列表。
+  AssistantContext _context = const AssistantContext();
+
   @override
   ChatState build() => const ChatState();
 
@@ -174,12 +178,15 @@ class ChatController extends Notifier<ChatState> {
     );
 
     try {
-      final FinanceAnswer answer = await answerQuestion(
-        ref,
-        question,
-        nowMs: nowMs ?? _nowMs,
-      );
-      _settle(AnswerMessage(answer));
+      final ({FinanceAnswer answer, AssistantContext context}) result =
+          await answerQuestion(
+            ref,
+            question,
+            nowMs: nowMs ?? _nowMs,
+            context: _context,
+          );
+      _context = result.context;
+      _settle(AnswerMessage(result.answer));
     } catch (_) {
       _settle(const NoticeMessage('查询失败了，稍后再试一次。', tone: NoticeTone.warn));
     }
@@ -192,7 +199,11 @@ class ChatController extends Notifier<ChatState> {
     if (path.isEmpty || state.busy) return;
     final int now = nowMs ?? _nowMs;
     state = ChatState(
-      messages: <ChatMessage>[..._withoutPending(), UserImageMessage(path), const _Pending()],
+      messages: <ChatMessage>[
+        ..._withoutPending(),
+        UserImageMessage(path),
+        const _Pending(),
+      ],
       busy: true,
     );
 
@@ -202,10 +213,16 @@ class ChatController extends Notifier<ChatState> {
 
       // ⚠️ 必须 await：`ref.read(provider)` 拿到的是 AsyncValue，首次读时 value 还是 null，
       // 直接 `.value ?? []` 会让分类/账户永远是空的 → 卡片上「请选择分类」，用户点确认永远失败。
-      final List<Category> categories = await ref.read(categoriesProvider.future);
+      final List<Category> categories = await ref.read(
+        categoriesProvider.future,
+      );
       final List<Account> accounts = await ref.read(accountsProvider.future);
       final String type = draft.direction.value ?? 'expense';
-      final String? categoryId = matchCategoryId(categories, type, draft.categoryName.value);
+      final String? categoryId = matchCategoryId(
+        categories,
+        type,
+        draft.categoryName.value,
+      );
       final String? accountId =
           matchAccountId(accounts, draft.paymentType) ??
           (accounts.isEmpty ? null : accounts.first.id);
@@ -318,8 +335,7 @@ class ChatController extends Notifier<ChatState> {
           fresh.copyWith(
             saving: false,
             done: true,
-            resultText:
-                '这笔之前已经记过了 · ¥${centsToYuan(tx.amountCents)}，没有重复入账',
+            resultText: '这笔之前已经记过了 · ¥${centsToYuan(tx.amountCents)}，没有重复入账',
           ),
         );
       case ReceiptWriteFailed(message: final String message):
@@ -340,8 +356,9 @@ class ChatController extends Notifier<ChatState> {
   // ────────────────────────────── 内部 ──────────────────────────────
 
   /// 占位消息：UI 显示「处理中…」，不入最终列表（每次 settle 前剔除）。
-  ChatMessage? _at(int index) =>
-      index >= 0 && index < state.messages.length ? state.messages[index] : null;
+  ChatMessage? _at(int index) => index >= 0 && index < state.messages.length
+      ? state.messages[index]
+      : null;
 
   List<ChatMessage> _withoutPending() =>
       state.messages.where((ChatMessage m) => m is! _Pending).toList();

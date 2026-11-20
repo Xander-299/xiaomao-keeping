@@ -166,6 +166,132 @@ void main() {
     });
   });
 
+  group('多轮追问：沿用上一句的区间', () {
+    AssistantContext ctx([Period? p, String kind = 'expense']) =>
+        AssistantContext(period: p, kind: kind);
+
+    test('「那餐饮呢」→ 同一个月的分类查询', () {
+      final Period last = Period.month(2026, 10);
+      final FinanceIntent i = parseFinanceIntent(
+        '那餐饮呢',
+        expenseCategories: _expense,
+        incomeCategories: _income,
+        nowMs: _nowMs,
+        context: ctx(last),
+      );
+      expect(i, isA<CategorySpendingIntent>());
+      final CategorySpendingIntent c = i as CategorySpendingIntent;
+      expect(c.categoryName, '餐饮');
+      expect(c.period.startMs, last.startMs);
+      expect(c.period.endMs, last.endMs);
+    });
+
+    test('「大额的呢」→ 沿用上一句区间，而不是默认近 90 天', () {
+      final Period last = Period.month(2026, 9);
+      final FinanceIntent i = parseFinanceIntent(
+        '大额的呢',
+        expenseCategories: _expense,
+        incomeCategories: _income,
+        nowMs: _nowMs,
+        context: ctx(last),
+      );
+      expect(i, isA<TopExpensesIntent>());
+      expect((i as TopExpensesIntent).period.label, '2026年9月');
+    });
+
+    test('「比上个月呢」→ 拿上一句区间当「当前」，前一段等长', () {
+      final Period last = Period.month(2026, 10);
+      final FinanceIntent i = parseFinanceIntent(
+        '比上个月呢',
+        expenseCategories: _expense,
+        incomeCategories: _income,
+        nowMs: _nowMs,
+        context: ctx(last),
+      );
+      expect(i, isA<CompareIntent>());
+      final CompareIntent c = i as CompareIntent;
+      expect(c.current.label, '2026年10月');
+      expect(c.previous.label, '2026年9月');
+    });
+
+    test('本句显式说了时间 → 以本句为准（不继承）', () {
+      final FinanceIntent i = parseFinanceIntent(
+        '上个月餐饮花了多少',
+        expenseCategories: _expense,
+        incomeCategories: _income,
+        nowMs: _nowMs,
+        context: ctx(Period.month(2026, 3)),
+      );
+      expect((i as CategorySpendingIntent).period.label, '2026年9月');
+    });
+
+    test('没有上下文时「那餐饮呢」按本月答（区间标签会写出来，不瞎猜）', () {
+      final FinanceIntent i = _parse('那餐饮呢');
+      expect((i as CategorySpendingIntent).period.label, '2026年10月');
+    });
+  });
+
+  group('商户 / 备注搜索', () {
+    test('「星巴克花了多少」→ 商户意图，关键词去前缀', () {
+      final FinanceIntent i = _parse('在星巴克花了多少');
+      expect(i, isA<MerchantSpendingIntent>());
+      expect((i as MerchantSpendingIntent).keyword, '星巴克');
+      expect(i.period.label, '2026年10月');
+    });
+
+    test('「这个月花了多少」不能被当成商户', () {
+      expect(_parse('这个月花了多少'), isA<MonthSummaryIntent>());
+    });
+
+    test('分类名不会被当成商户', () {
+      final FinanceIntent i = _parse('餐饮花了多少');
+      expect(i, isA<CategorySpendingIntent>());
+    });
+  });
+
+  group('新增时间说法', () {
+    Period p(String q) {
+      final FinanceIntent i = parseFinanceIntent(
+        q,
+        expenseCategories: _expense,
+        incomeCategories: _income,
+        nowMs: _nowMs, // 2026-10-25（周日）
+      );
+      return switch (i) {
+        MonthSummaryIntent(:final Period period) => period,
+        _ => throw StateError('不是汇总意图：$i'),
+      };
+    }
+
+    test('昨天 = 前天到今天凌晨', () {
+      final Period y = p('昨天花了多少');
+      expect(y.startMs, DateTime(2026, 10, 24).millisecondsSinceEpoch);
+      expect(y.endMs, DateTime(2026, 10, 25).millisecondsSinceEpoch);
+    });
+
+    test('本周 = 周一 00:00 起（10-25 是周日，本周一 = 10-19）', () {
+      final Period w = p('这周花了多少');
+      expect(w.startMs, DateTime(2026, 10, 19).millisecondsSinceEpoch);
+      expect(w.endMs, DateTime(2026, 10, 26).millisecondsSinceEpoch);
+    });
+
+    test('上周 / 上上周 各往前一周', () {
+      final Period last = p('上周花了多少');
+      expect(last.startMs, DateTime(2026, 10, 12).millisecondsSinceEpoch);
+      expect(last.endMs, DateTime(2026, 10, 19).millisecondsSinceEpoch);
+
+      final Period before = p('上上周花了多少');
+      expect(before.startMs, DateTime(2026, 10, 5).millisecondsSinceEpoch);
+      expect(before.endMs, DateTime(2026, 10, 12).millisecondsSinceEpoch);
+    });
+
+    test('最近三周 = 含本周在内往前三周', () {
+      final Period w = p('最近三周花了多少');
+      expect(w.startMs, DateTime(2026, 10, 5).millisecondsSinceEpoch);
+      expect(w.endMs, DateTime(2026, 10, 26).millisecondsSinceEpoch);
+    });
+  });
+
   group('对比区间覆盖两个月', () {
     test('windowOf(compare) 从上一期开始、到本期结束', () {
       final CompareIntent c = _parse('这个月为什么比上个月多') as CompareIntent;

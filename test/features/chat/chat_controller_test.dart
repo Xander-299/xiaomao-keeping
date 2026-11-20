@@ -115,6 +115,51 @@ Future<({AppDatabase db, ProviderContainer container, Book book})> _seed({
 ChatController _ctrl(ProviderContainer c) => c.read(chatProvider.notifier);
 
 void main() {
+  group('多轮追问（同一会话里继承上一句区间）', () {
+    test('「这个月花了多少」→「那餐饮呢」：第二句沿用本月', () async {
+      final r = await _seed();
+      addTearDown(r.db.close);
+      addTearDown(r.container.dispose);
+
+      await _ctrl(r.container).ask('这个月花了多少', nowMs: _nowMs);
+      await _ctrl(r.container).ask('那餐饮呢', nowMs: _nowMs);
+
+      final List<ChatMessage> msgs = r.container.read(chatProvider).messages;
+      expect(msgs.length, 4); // 两问两答
+      final AnswerMessage second = msgs.last as AnswerMessage;
+      expect(second.answer.title, contains('2026年10月'), reason: '没带时间词也要沿用本月');
+      expect(second.answer.title, contains('餐饮'));
+    });
+
+    test('先问「上周」再问「那购物呢」：区间要跟上周，不是本月', () async {
+      final r = await _seed();
+      addTearDown(r.db.close);
+      addTearDown(r.container.dispose);
+
+      await _ctrl(r.container).ask('上周花了多少', nowMs: _nowMs);
+      await _ctrl(r.container).ask('那购物呢', nowMs: _nowMs);
+
+      final AnswerMessage second =
+          r.container.read(chatProvider).messages.last as AnswerMessage;
+      // 2026-10-25 是周日 → 上周 = 10-12 ~ 10-19
+      expect(second.answer.narrative, contains('10月12日–10月18日'));
+    });
+
+    test('不认识的问题不破坏上下文：之后「那餐饮呢」仍能接上', () async {
+      final r = await _seed();
+      addTearDown(r.db.close);
+      addTearDown(r.container.dispose);
+
+      await _ctrl(r.container).ask('这个月花了多少', nowMs: _nowMs);
+      await _ctrl(r.container).ask('帮我写首诗', nowMs: _nowMs);
+      await _ctrl(r.container).ask('那餐饮呢', nowMs: _nowMs);
+
+      final AnswerMessage last =
+          r.container.read(chatProvider).messages.last as AnswerMessage;
+      expect(last.answer.title, contains('2026年10月'));
+    });
+  });
+
   group('文字', () {
     test('问「这个月花了多少」→ 答案里的金额与账本一致', () async {
       final r = await _seed();
