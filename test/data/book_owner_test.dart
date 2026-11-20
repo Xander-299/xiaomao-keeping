@@ -4,7 +4,8 @@ library;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:yanxin/core/db/database.dart';
-import 'package:yanxin/core/providers/account_scope.dart';
+import 'package:yanxin/core/models/saved_account.dart';
+import 'package:yanxin/core/providers/account_keys.dart';
 import 'package:yanxin/data/repositories/app_meta_repository.dart';
 import 'package:yanxin/data/repositories/book_repository.dart';
 

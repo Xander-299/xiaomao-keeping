@@ -517,7 +517,7 @@ class _ImportPageState extends ConsumerState<ImportPage> {
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: hasNew ? p.greenTint : p.track,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(Tok.rMd),
                         border: Border.all(color: p.ink, width: 2),
                         boxShadow: p.hard(d: 2),
                       ),
@@ -720,7 +720,7 @@ extension _BackupReportUi on _ImportPageState {
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: r.imported > 0 ? p.greenTint : p.track,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(Tok.rMd),
                         border: Border.all(color: p.ink, width: 2),
                         boxShadow: p.hard(d: 2),
                       ),

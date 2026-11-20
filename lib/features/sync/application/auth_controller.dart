@@ -13,10 +13,11 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:yanxin/core/db/database.dart';
+import 'package:yanxin/core/models/saved_account.dart';
 import 'package:yanxin/core/network/cloud_sync_gate.dart';
 import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/network/sync_endpoints.dart';
-import 'package:yanxin/core/providers/account_scope.dart';
+import 'package:yanxin/core/providers/account_keys.dart';
 import 'package:yanxin/core/providers/after_write.dart';
 import 'package:yanxin/core/security/token_store.dart';
 import 'package:yanxin/data/providers/database.dart';

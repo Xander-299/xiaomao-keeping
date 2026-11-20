@@ -19,7 +19,7 @@ class _QuestionBubble extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: p.brandTint,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(Tok.rMd),
           border: p.inkBorder(on: p.brandTint),
         ),
         child: Row(

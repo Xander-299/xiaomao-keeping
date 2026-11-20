@@ -8,7 +8,8 @@ import 'package:drift/drift.dart';
 
 import '../../core/constants/preset.dart';
 import '../../core/db/database.dart';
-import '../../core/providers/account_scope.dart';
+import '../../core/models/saved_account.dart';
+import '../../core/providers/account_keys.dart';
 import '../../core/utils/id.dart';
 import 'account_repository.dart';
 import 'category_repository.dart';

@@ -1,25 +1,15 @@
-/// 「当前是哪个账号」的 KV 约定（P6.5 多账号）。
+/// 已保存账号的模型与编解码（P6.5 多账号）。
 ///
-/// 为什么放在 core 而不是 `features/sync`：账本仓储（data 层）要按账号过滤、
-/// 账本状态（data providers）要按账号取 `active_book_id`，它们都不该反过来依赖
-/// `features/sync`。这里只定义**键名与解析**，不碰网络、不碰 UI。
+/// 从 `core/providers/account_scope.dart` 分出来的：那个文件同时装着键约定、
+/// 键派生、模型与编解码三件事，改哪一件都得看另外两件。现在：
+/// - 键与派生 → `core/providers/account_keys.dart`
+/// - 模型与编解码 → 本文件
 ///
-/// 三个键：
-/// - `sync_accounts`：已保存账号列表（JSON，登录过就有；**判断「用过云同步」的唯一依据**）；
-/// - `active_account_email`：当前账号（退出登录时删除 = null）；
-/// - `sync_session:<email>`：每个账号各自的 token（在 Keystore，不在这里）。
+/// 仍然留在 core 而不是 `features/sync`：`BookRepository`（data 层）也要用
+/// `parseSavedAccounts` 判断「这台机器有没有登录过云同步」，data 不能反向依赖 features。
 library;
 
 import 'dart:convert';
-
-/// 已保存账号列表（`schema_meta`）。
-const String kSyncAccountsKey = 'sync_accounts';
-
-/// 当前账号邮箱（`schema_meta`）；缺失 = 未登录。
-const String kActiveAccountKey = 'active_account_email';
-
-/// 单个账号的安全存储键（每个账号一份 token）。
-String sessionKeyFor(String email) => 'sync_session:${email.trim()}';
 
 /// 已保存账号。
 class SavedAccount {
