@@ -192,7 +192,7 @@ class _AccountTile extends StatelessWidget {
                 decoration: BoxDecoration(
                   // 自选颜色优先；空串 / 非法值 = 类型默认底色（老数据行为不变）
                   color: avatarBg,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(Tok.rMd),
                   border: Border.all(color: p.ink, width: 2),
                   boxShadow: p.hard(d: 2),
                 ),
