@@ -248,8 +248,10 @@ if (Test-Path $aapt) {
   $deviceAbi = ((& $Adb -s $Serial shell getprop ro.product.cpu.abi) 2>&1 | Out-String).Trim()
   if ($deviceAbi) {
     $nativeLine = (& $aapt dump badging $apk.FullName 2>&1 | Out-String)
-    if ($nativeLine -match "native-code: '([^']+)'") {
-      $abis = $Matches[1] -split "' '"
+    # ⚠️ 2026-11-21 修：原来的正则只吃到**第一个** ABI，多 ABI 的 debug 包
+    # （arm64 + v7a + x86_64）会被误判成「只有 arm64」→ x86_64 模拟器直接被挡住。
+    if ($nativeLine -match "native-code: ((?:'[^']+' ?)+)") {
+      $abis = @([regex]::Matches($Matches[1], "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
       # armeabi-v7a 设备可跑 armeabi-v7a；arm64 设备通常也能跑 v7a（取决于系统）
       if ($abis -notcontains $deviceAbi) {
         # arm64 设备上允许 32 位包（有 v7a 就能装），其它情况直接挡
