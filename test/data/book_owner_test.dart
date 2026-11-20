@@ -4,6 +4,7 @@ library;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:yanxin/core/db/database.dart';
+import 'package:yanxin/core/models/email.dart';
 import 'package:yanxin/core/models/saved_account.dart';
 import 'package:yanxin/core/providers/account_keys.dart';
 import 'package:yanxin/data/repositories/app_meta_repository.dart';
@@ -18,7 +19,7 @@ Future<void> _signInAs(AppDatabase db, String email) async {
     kSyncAccountsKey,
     encodeSavedAccounts(<SavedAccount>[
       SavedAccount(
-        email: email,
+        email: Email.tryParse(email)!,
         lastUsedAt: DateTime.now().millisecondsSinceEpoch,
       ),
     ]),

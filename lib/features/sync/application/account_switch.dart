@@ -11,6 +11,7 @@ library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:yanxin/core/models/email.dart';
 import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/providers/after_write.dart';
 import 'package:yanxin/core/providers/settings_dirty.dart';
@@ -37,7 +38,7 @@ class AccountSwitcher {
   }) async {
     final AuthController auth = _ref.read(authControllerProvider.notifier);
     final AuthState? before = _ref.read(authControllerProvider).value;
-    final String? oldEmail = before?.signedIn == true ? before?.email : null;
+    final Email? oldEmail = before?.signedIn == true ? before?.email : null;
     final bool wasEnabled =
         _ref.read(cloudSyncEnabledProvider).value ?? false;
 
@@ -99,10 +100,10 @@ class AccountSwitcher {
     }
   }
 
-  Future<void> _rollback(AuthController auth, String? oldEmail) async {
+  Future<void> _rollback(AuthController auth, Email? oldEmail) async {
     try {
       if (oldEmail != null) {
-        await auth.switchTo(oldEmail);
+        await auth.switchTo(oldEmail.value);
       } else {
         await auth.signOut();
       }

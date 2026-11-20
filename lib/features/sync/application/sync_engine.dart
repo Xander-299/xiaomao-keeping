@@ -19,6 +19,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:yanxin/core/db/database.dart';
+import 'package:yanxin/core/models/email.dart';
 import 'package:yanxin/core/network/cloud_sync_gate.dart';
 import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/providers/data_epoch.dart';
@@ -83,11 +84,11 @@ final syncStatusProvider =
 class SyncStatusController extends AsyncNotifier<SyncStatusState> {
   @override
   Future<SyncStatusState> build() async {
-    final String? email = ref.watch(authControllerProvider).value?.email;
+    final Email? email = ref.watch(authControllerProvider).value?.email;
     if (email == null) return const SyncStatusState();
     final String? raw = await ref
         .read(appMetaRepositoryProvider)
-        .get(_syncLastAtKey(email));
+        .get(_syncLastAtKey(email.value));
     final int? ms = int.tryParse(raw ?? '');
     return SyncStatusState(
       lastSyncAt: ms == null
@@ -160,7 +161,7 @@ class SyncEngine {
     if (auth?.signedIn != true) {
       throw const SyncApiException('unauthorized', statusCode: 401);
     }
-    final String email = auth?.email ?? 'local';
+    final String email = auth?.email?.value ?? 'local';
     final AppDatabase db = _ref.read(appDatabaseProvider);
     final meta = _ref.read(appMetaRepositoryProvider);
     final SyncApi api = _ref.read(syncApiProvider);
@@ -237,7 +238,7 @@ class SyncEngine {
     if (auth?.signedIn != true) {
       throw const SyncApiException('unauthorized', statusCode: 401);
     }
-    final String email = auth?.email ?? 'local';
+    final String email = auth?.email?.value ?? 'local';
     final db = _ref.read(appDatabaseProvider);
     final meta = _ref.read(appMetaRepositoryProvider);
     final api = _ref.read(syncApiProvider);

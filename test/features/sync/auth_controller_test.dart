@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:yanxin/core/db/database.dart';
+import 'package:yanxin/core/models/email.dart';
 import 'package:yanxin/core/models/saved_account.dart';
 import 'package:yanxin/core/network/cloud_sync_gate.dart';
 import 'package:yanxin/core/network/sync_api.dart';
@@ -109,7 +110,7 @@ void main() {
 
       expect(state.signedIn, isTrue);
       expect(state.session?.accessToken, 'access-old');
-      expect(state.email, 'old@example.com');
+      expect(state.email?.value, 'old@example.com');
       expect(transport.requests, isEmpty);
     });
 
@@ -154,12 +155,12 @@ void main() {
 
       final AuthState state = h.container.read(authControllerProvider).value!;
       expect(state.signedIn, isTrue);
-      expect(state.email, 'me@example.com');
+      expect(state.email?.value, 'me@example.com');
       expect(state.session?.accessToken, 'access-1');
 
       // P6.5：token 落在该邮箱自己的槽里
       final AuthSession? saved = AuthSession.tryParse(
-        await store.read(sessionKeyFor('me@example.com')),
+        await store.read(sessionKeyFor(Email.tryParse('me@example.com')!)),
       );
       expect(saved?.refreshToken, 'refresh-1');
       expect(await store.read(kSyncEmailKey), 'me@example.com');
@@ -288,11 +289,11 @@ void main() {
       await h.container.read(authControllerProvider.notifier).signOut();
 
       // P6.5（用户 2026-11-14 裁定）：退出**保留 token**，只回未登录视图
-      expect(await store.read(sessionKeyFor('old@example.com')), isNotNull);
+      expect(await store.read(sessionKeyFor(Email.tryParse('old@example.com')!)), isNotNull);
       final AuthState after =
           h.container.read(authControllerProvider).value!;
       expect(after.signedIn, isFalse);
-      expect(after.accounts.map((SavedAccount a) => a.email),
+      expect(after.accounts.map((SavedAccount a) => a.email.value),
           contains('old@example.com'));
       // 退出不再打网络（token 留着，下次点一下就能回来）
       expect(transport.requests, isEmpty);

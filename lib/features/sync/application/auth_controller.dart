@@ -13,6 +13,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:yanxin/core/db/database.dart';
+import 'package:yanxin/core/models/email.dart';
 import 'package:yanxin/core/models/saved_account.dart';
 import 'package:yanxin/core/network/cloud_sync_gate.dart';
 import 'package:yanxin/core/network/sync_api.dart';
@@ -72,7 +73,10 @@ class AuthState {
   final AuthSession? session;
 
   /// 上次登录 / 当前登录的邮箱（未登录时也可能有值，用于预填）。
-  final String? email;
+  ///
+  /// 类型是 [Email] 而不是 String：能到这里的一定**已归一化**（trim + 小写），
+  /// 拼会话键、比账号、写账本 `ownerId` 都用它，不再各自 trim/小写一遍。
+  final Email? email;
 
   /// 已保存账号（登录过就在列表里，按最近使用排序）。
   final List<SavedAccount> accounts;
@@ -84,7 +88,7 @@ class AuthState {
 
   AuthState copyWith({
     AuthSession? session,
-    String? email,
+    Email? email,
     List<SavedAccount>? accounts,
     bool clearSession = false,
     bool clearEmail = false,
@@ -123,22 +127,16 @@ final cloudSyncGateProvider = Provider<CloudSyncGate>((Ref ref) {
 });
 
 class AuthController extends AsyncNotifier<AuthState> {
-  /// 账号邮箱的**唯一归一化口径**：去空格 + 小写。
-  ///
-  /// 服务端 `normalizeEmail` 也转小写；客户端不跟就会「同一个账号两种写法」——
-  /// `ownerId` 是精确比较的，大小写不同即**整本账不可见**（SPEC-P6.5 D2）。
-  static String normalizeEmail(String value) => value.trim().toLowerCase();
+  /// 邮箱形状校验（UI 在提交前调一次，避免无谓请求）。真正的归一化在 [Email]。
+  static bool isValidEmail(String value) => Email.isValid(value);
 
-  /// 邮箱形状校验（纯函数，服务端仍会再校验一次）。
-  static bool isValidEmail(String value) {
-    final String v = value.trim();
-    final int at = v.indexOf('@');
-    if (at <= 0 || at == v.length - 1) return false;
-    final String domain = v.substring(at + 1);
-    return domain.contains('.') &&
-        !domain.startsWith('.') &&
-        !domain.endsWith('.') &&
-        !domain.contains('@');
+  /// 解析并归一化；不合法就抛「邮箱格式不对」（调用方不必再自己校验）。
+  static Email _requireEmail(String raw) {
+    final Email? email = Email.tryParse(raw);
+    if (email == null) {
+      throw const SyncApiException('invalidInput', message: '邮箱格式不对');
+    }
+    return email;
   }
 
   /// 冷启动只读本机，**不发网络**（避免启动即联网 / 启动被网络卡住）。
@@ -146,20 +144,19 @@ class AuthController extends AsyncNotifier<AuthState> {
   Future<AuthState> build() async {
     final TokenStore store = ref.watch(tokenStoreProvider);
     final meta = ref.read(appMetaRepositoryProvider);
-    String? lastEmail;
+    Email? lastEmail;
     List<SavedAccount> accounts = const <SavedAccount>[];
     try {
       // 旧版把邮箱写在 Keystore（`_save` 里），新版也写一份进 schema_meta；
       // 迁移时两边都要看，否则 v0.8.9 升级上来的用户会被当成「没登录过」。
-      lastEmail = (await store.read(kSyncEmailKey)) ??
-          await meta.get(kSyncEmailKey);
+      lastEmail = Email.tryParse(
+        (await store.read(kSyncEmailKey)) ?? await meta.get(kSyncEmailKey),
+      );
       accounts = parseSavedAccounts(await meta.get(kSyncAccountsKey));
       if (accounts.isEmpty) {
         accounts = await _migrateLegacySlot(store, meta, lastEmail);
       }
-      final String? active = (await meta.get(kActiveAccountKey))?.trim();
-      final String? current =
-          (active != null && active.isNotEmpty) ? active : null;
+      final Email? current = Email.tryParse(await meta.get(kActiveAccountKey));
       if (current == null) {
         // 未登录（可能是「退出但保留 token」）：token 不动，只暴露账号列表
         return AuthState(email: lastEmail, accounts: accounts);
@@ -187,43 +184,37 @@ class AuthController extends AsyncNotifier<AuthState> {
   Future<List<SavedAccount>> _migrateLegacySlot(
     TokenStore store,
     AppMetaRepository meta,
-    String? email,
+    Email? email,
   ) async {
-    if (email == null || email.trim().isEmpty) return const <SavedAccount>[];
+    if (email == null) return const <SavedAccount>[];
     final String? legacy = await store.read(kSyncSessionKey);
     if (legacy == null || legacy.isEmpty) return const <SavedAccount>[];
     await store.write(sessionKeyFor(email), legacy);
     await store.delete(kSyncSessionKey);
     final List<SavedAccount> accounts = <SavedAccount>[
       SavedAccount(
-        email: email.trim(),
+        email: email,
         lastUsedAt: DateTime.now().millisecondsSinceEpoch,
       ),
     ];
     await meta.set(kSyncAccountsKey, encodeSavedAccounts(accounts));
-    await meta.set(kActiveAccountKey, email.trim());
+    await meta.set(kActiveAccountKey, email.value);
     return accounts;
   }
 
   /// 发验证码。
   Future<void> requestCode(String email) async {
-    if (!isValidEmail(email)) {
-      throw const SyncApiException('invalidInput', message: '邮箱格式不对');
-    }
-    await ref.read(syncApiProvider).requestCode(email.trim());
+    await ref.read(syncApiProvider).requestCode(_requireEmail(email).value);
   }
 
   /// 校验验证码并登录。
   Future<void> signIn({required String email, required String code}) async {
-    final String normalized = normalizeEmail(email);
-    if (!isValidEmail(normalized)) {
-      throw const SyncApiException('invalidInput', message: '邮箱格式不对');
-    }
+    final Email address = _requireEmail(email);
     final AuthSession session = await ref
         .read(syncApiProvider)
-        .verify(normalized, code.trim());
-    await _save(session, normalized);
-    await _enterAccount(normalized);
+        .verify(address.value, code.trim());
+    await _save(session, address);
+    await _enterAccount(address);
   }
 
   /// 退出登录：**只回到未登录视图，保留 token**（用户 2026-11-14 裁定）。
@@ -247,13 +238,13 @@ class AuthController extends AsyncNotifier<AuthState> {
   /// 本地**账本保留但隐藏**（与「移除账号」同口径）：云端已经没了，
   /// 但用户可能还想把本机这份导出去，不能替他删。
   Future<void> deleteAccount() async {
-    final String? email = state.value?.email;
+    final Email? email = state.value?.email;
     await _withAuth(
       (String token) => ref.read(syncApiProvider).deleteAccount(token),
     );
     await ref.read(cloudSyncEnabledProvider.notifier).setEnabled(false);
     if (email != null) {
-      await removeAccount(email);
+      await removeAccount(email.value);
     } else {
       await _clearSession();
     }
@@ -314,28 +305,33 @@ class AuthController extends AsyncNotifier<AuthState> {
         await _clearSession();
         rethrow;
       }
-      await _save(refreshed, current?.email ?? '');
+      final Email? currentEmail = current?.email;
+      if (currentEmail == null) {
+        await _clearSession();
+        rethrow;
+      }
+      await _save(refreshed, currentEmail);
       return run(refreshed.accessToken);
     }
   }
 
-  Future<void> _save(AuthSession session, String email) async {
+  Future<void> _save(AuthSession session, Email email) async {
     final TokenStore store = ref.read(tokenStoreProvider);
     // token 先落盘：写失败就让登录失败，不能只改内存状态
     await store.write(sessionKeyFor(email), session.toStorageJson());
     // 两份都写：Keystore 那份是旧版口径，schema_meta 那份给账本层看
     try {
-      await store.write(kSyncEmailKey, email);
+      await store.write(kSyncEmailKey, email.value);
     } on SecureStoreException {
       // 兼容旧口径失败不影响登录
     }
-    await ref.read(appMetaRepositoryProvider).set(kSyncEmailKey, email);
+    await ref.read(appMetaRepositoryProvider).set(kSyncEmailKey, email.value);
     state = AsyncData(state.value?.copyWith(session: session, email: email) ??
         AuthState(session: session, email: email));
   }
 
   /// 登录 / 切号成功后的「进入该账号」：写账号列表 + 当前账号 + 账本范围。
-  Future<void> _enterAccount(String email) async {
+  Future<void> _enterAccount(Email email) async {
     final meta = ref.read(appMetaRepositoryProvider);
     final DateTime now = DateTime.now();
     final List<SavedAccount> accounts = <SavedAccount>[
@@ -344,7 +340,7 @@ class AuthController extends AsyncNotifier<AuthState> {
       SavedAccount(email: email, lastUsedAt: now.millisecondsSinceEpoch),
     ]..sort((SavedAccount a, SavedAccount b) => b.lastUsedAt - a.lastUsedAt);
     await meta.set(kSyncAccountsKey, encodeSavedAccounts(accounts));
-    await meta.set(kActiveAccountKey, email);
+    await meta.set(kActiveAccountKey, email.value);
     state = AsyncData(
       (state.value ?? const AuthState()).copyWith(
         email: email,
@@ -358,14 +354,15 @@ class AuthController extends AsyncNotifier<AuthState> {
   /// 让账本范围与 [email] 对齐：绑定本机账本（若该账号还没有账本）、确保有账本、落 active id。
   ///
   /// 失败不抛：账本层异常不能把登录判失败，下一次进 App 再兜。
-  Future<void> _applyAccountScope(String email, {bool refresh = true}) async {
+  Future<void> _applyAccountScope(Email email, {bool refresh = true}) async {
     final books = ref.read(bookRepositoryProvider);
+    final String owner = email.value;
     try {
-      await books.bindUnownedBooksTo(email);
+      await books.bindUnownedBooksTo(owner);
       final Book? visible = await books.ensureVisibleBook();
-      final String? active = await books.getActiveBookIdFor(email);
+      final String? active = await books.getActiveBookIdFor(owner);
       if (visible != null && active == null) {
-        await books.setActiveBookIdFor(email, visible.id);
+        await books.setActiveBookIdFor(owner, visible.id);
       }
     } catch (_) {
       // 见上
@@ -375,9 +372,9 @@ class AuthController extends AsyncNotifier<AuthState> {
 
   /// 切到另一个已保存账号（不校验 token 是否仍有效 —— 用的时候 401 会续期）。
   Future<void> switchTo(String email) async {
-    final String normalized = normalizeEmail(email);
+    final Email address = _requireEmail(email);
     final TokenStore store = ref.read(tokenStoreProvider);
-    final String? raw = await store.read(sessionKeyFor(normalized));
+    final String? raw = await store.read(sessionKeyFor(address));
     final AuthSession? session = AuthSession.tryParse(raw);
     if (session == null) {
       throw const SyncApiException(
@@ -389,33 +386,32 @@ class AuthController extends AsyncNotifier<AuthState> {
     state = AsyncData(
       (state.value ?? const AuthState()).copyWith(
         session: session,
-        email: normalized,
+        email: address,
       ),
     );
-    await _enterAccount(normalized);
+    await _enterAccount(address);
   }
 
   /// 移除账号：删本地 token + 从列表移除；**账本保留但隐藏**（同邮箱再登录自动恢复）。
   Future<void> removeAccount(String email) async {
-    final String normalized = normalizeEmail(email);
+    final Email address = _requireEmail(email);
     final TokenStore store = ref.read(tokenStoreProvider);
     try {
-      await store.delete(sessionKeyFor(normalized));
+      await store.delete(sessionKeyFor(address));
     } on SecureStoreException {
       // 删不掉也继续：至少把它从列表里拿掉
     }
-    final String? active = (await ref
-            .read(appMetaRepositoryProvider)
-            .get(kActiveAccountKey))
-        ?.trim();
+    final Email? active = Email.tryParse(
+      await ref.read(appMetaRepositoryProvider).get(kActiveAccountKey),
+    );
     final List<SavedAccount> accounts = <SavedAccount>[
       for (final SavedAccount a in state.value?.accounts ?? const <SavedAccount>[])
-        if (a.email != normalized) a,
+        if (a.email != address) a,
     ];
     await ref
         .read(appMetaRepositoryProvider)
         .set(kSyncAccountsKey, encodeSavedAccounts(accounts));
-    final bool isCurrent = active == normalized;
+    final bool isCurrent = active == address;
     if (isCurrent) {
       await ref.read(appMetaRepositoryProvider).remove(kActiveAccountKey);
     }
@@ -430,7 +426,7 @@ class AuthController extends AsyncNotifier<AuthState> {
   }
 
   Future<void> _clearSession() async {
-    final String? email = state.value?.email;
+    final Email? email = state.value?.email;
     final TokenStore store = ref.read(tokenStoreProvider);
     if (email != null) {
       try {

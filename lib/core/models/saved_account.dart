@@ -11,24 +11,32 @@ library;
 
 import 'dart:convert';
 
+import 'email.dart';
+
 /// 已保存账号。
 class SavedAccount {
   const SavedAccount({required this.email, required this.lastUsedAt});
 
-  factory SavedAccount.fromJson(Map<String, Object?> json) => SavedAccount(
-    email: (json['email'] as String? ?? '').trim(),
-    lastUsedAt: json['lastUsedAt'] is num
-        ? (json['lastUsedAt']! as num).toInt()
-        : 0,
-  );
+  /// 解析一条账号记录；邮箱不合法（或缺失）返回 null —— 坏数据直接丢，
+  /// 不要让它以「空邮箱账号」的形态混进列表。
+  static SavedAccount? tryFromJson(Map<String, Object?> json) {
+    final Email? email = Email.tryParse(json['email'] as String?);
+    if (email == null) return null;
+    return SavedAccount(
+      email: email,
+      lastUsedAt: json['lastUsedAt'] is num
+          ? (json['lastUsedAt']! as num).toInt()
+          : 0,
+    );
+  }
 
-  final String email;
+  final Email email;
 
   /// 毫秒时间戳，用于列表排序（最近用的在最上面）。
   final int lastUsedAt;
 
   Map<String, Object?> toJson() => <String, Object?>{
-    'email': email,
+    'email': email.value,
     'lastUsedAt': lastUsedAt,
   };
 
@@ -43,9 +51,9 @@ List<SavedAccount> parseSavedAccounts(String? raw) {
     if (decoded is! List) return const <SavedAccount>[];
     final List<SavedAccount> out = <SavedAccount>[
       for (final Object? item in decoded)
-        if (item is Map) SavedAccount.fromJson(Map<String, Object?>.from(item)),
+        if (item is Map)
+          ?SavedAccount.tryFromJson(Map<String, Object?>.from(item)),
     ];
-    out.removeWhere((SavedAccount a) => a.email.isEmpty);
     out.sort((SavedAccount a, SavedAccount b) => b.lastUsedAt - a.lastUsedAt);
     return out;
   } catch (_) {
