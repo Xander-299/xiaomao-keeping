@@ -64,7 +64,7 @@ class SyncTrigger {
     if (!_ref.read(cloudSyncGateProvider).allows(_syncProbe())) return null;
 
     final AppMetaRepository meta = _ref.read(appMetaRepositoryProvider);
-    final String email = auth.email ?? 'local';
+    final String email = auth.email?.value ?? 'local';
     final String key = '$kSyncLastAttemptKeyPrefix$email';
     final int now = DateTime.now().millisecondsSinceEpoch;
     final int? lastAttempt = int.tryParse((await meta.get(key)) ?? '');

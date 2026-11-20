@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:yanxin/core/db/database.dart';
+import 'package:yanxin/core/models/email.dart';
 import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/providers/account_keys.dart';
 import 'package:yanxin/core/security/token_store.dart';
@@ -186,7 +187,7 @@ void main() {
       find.byKey(const ValueKey<String>('cloudSyncDelete')),
       findsOneWidget,
     );
-    expect(await store.read(sessionKeyFor('me@example.com')), isNotNull);
+    expect(await store.read(sessionKeyFor(Email.tryParse('me@example.com')!)), isNotNull);
   });
 
   testWidgets('已登录：拨开关落库', (WidgetTester tester) async {

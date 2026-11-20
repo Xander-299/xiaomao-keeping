@@ -7,6 +7,8 @@
 /// `active_book_id`，它们都不该反过来依赖 `features/sync`。
 library;
 
+import '../models/email.dart';
+
 /// 已保存账号列表（`schema_meta`）。
 const String kSyncAccountsKey = 'sync_accounts';
 
@@ -14,4 +16,7 @@ const String kSyncAccountsKey = 'sync_accounts';
 const String kActiveAccountKey = 'active_account_email';
 
 /// 单个账号的安全存储键（每个账号一份 token）。
-String sessionKeyFor(String email) => 'sync_session:${email.trim()}';
+///
+/// 参数是 [Email] 而不是 String：键必须用**归一化后**的地址拼，否则
+/// `A@B.com` 与 `a@b.com` 会各存一份会话、互相看不见（P6.5 D2 的成因之一）。
+String sessionKeyFor(Email email) => 'sync_session:${email.value}';

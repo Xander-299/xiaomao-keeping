@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:yanxin/core/db/database.dart';
+import 'package:yanxin/core/models/email.dart';
 import 'package:yanxin/core/models/saved_account.dart';
 import 'package:yanxin/core/network/sync_api.dart';
 import 'package:yanxin/core/providers/account_keys.dart';
@@ -85,7 +86,7 @@ Future<Book> _seedAccountA(
   MemoryTokenStore store, {
   String email = 'a@example.com',
 }) async {
-  await store.write(sessionKeyFor(email), _session('a').toStorageJson());
+  await store.write(sessionKeyFor(_email(email)), _session('a').toStorageJson());
   final AppMetaRepository meta = AppMetaRepository(db);
   await meta.set(kSyncEmailKey, email);
   await meta.set(kActiveAccountKey, email);
@@ -94,13 +95,15 @@ Future<Book> _seedAccountA(
   await meta.set(
     kSyncAccountsKey,
     encodeSavedAccounts(<SavedAccount>[
-      SavedAccount(email: email, lastUsedAt: 1000),
+      SavedAccount(email: _email(email), lastUsedAt: 1000),
     ]),
   );
   final Book book = await BookRepository(db).create(name: 'A 的账本', ownerId: email);
   await BookRepository(db).setActiveBookIdFor(email, book.id);
   return book;
 }
+
+Email _email(String raw) => Email.tryParse(raw)!;
 
 void main() {
   test('迁移：旧单槽 session + 旧邮箱 → 转成该账号的槽并写进账号列表', () async {
@@ -112,11 +115,11 @@ void main() {
     final AuthState state = await h.container.read(authControllerProvider.future);
 
     expect(state.signedIn, isTrue);
-    expect(state.email, 'old@example.com');
-    expect(state.accounts.map((SavedAccount a) => a.email), <String>[
+    expect(state.email?.value, 'old@example.com');
+    expect(state.accounts.map((SavedAccount a) => a.email.value), <String>[
       'old@example.com',
     ]);
-    expect(await h.store.read(sessionKeyFor('old@example.com')), isNotNull);
+    expect(await h.store.read(sessionKeyFor(_email('old@example.com'))), isNotNull);
     expect(await h.store.read(kSyncSessionKey), isNull, reason: '旧键迁移后要删掉');
   });
 
@@ -124,15 +127,15 @@ void main() {
     final h = await _harness();
     await _seedAccountA(h.db, h.store);
     await h.store.write(
-      sessionKeyFor('b@example.com'),
+      sessionKeyFor(_email('b@example.com')),
       _session('b').toStorageJson(),
     );
     final meta = AppMetaRepository(h.db);
     await meta.set(
       kSyncAccountsKey,
-      encodeSavedAccounts(const <SavedAccount>[
-        SavedAccount(email: 'a@example.com', lastUsedAt: 1000),
-        SavedAccount(email: 'b@example.com', lastUsedAt: 2000),
+      encodeSavedAccounts(<SavedAccount>[
+        SavedAccount(email: _email('a@example.com'), lastUsedAt: 1000),
+        SavedAccount(email: _email('b@example.com'), lastUsedAt: 2000),
       ]),
     );
     final AuthController auth = h.container.read(authControllerProvider.notifier);
@@ -141,12 +144,12 @@ void main() {
     // 退出：token 保留
     await auth.signOut();
     expect(h.container.read(authControllerProvider).value?.signedIn, isFalse);
-    expect(await h.store.read(sessionKeyFor('a@example.com')), isNotNull);
+    expect(await h.store.read(sessionKeyFor(_email('a@example.com'))), isNotNull);
 
     // 切回：不发网络、直接可用
     await auth.switchTo('b@example.com');
     final AuthState state = h.container.read(authControllerProvider).value!;
-    expect(state.email, 'b@example.com');
+    expect(state.email?.value, 'b@example.com');
     expect(state.session?.accessToken, 'access-b');
     expect(h.transport.requests, isEmpty);
   });
@@ -159,7 +162,7 @@ void main() {
 
     await auth.removeAccount('a@example.com');
 
-    expect(await h.store.read(sessionKeyFor('a@example.com')), isNull);
+    expect(await h.store.read(sessionKeyFor(_email('a@example.com'))), isNull);
     expect(
       h.container.read(authControllerProvider).value?.accounts,
       isEmpty,
@@ -174,14 +177,14 @@ void main() {
     final h = await _harness(failNetwork: true);
     await _seedAccountA(h.db, h.store);
     await h.store.write(
-      sessionKeyFor('b@example.com'),
+      sessionKeyFor(_email('b@example.com')),
       _session('b').toStorageJson(),
     );
     await AppMetaRepository(h.db).set(
       kSyncAccountsKey,
-      encodeSavedAccounts(const <SavedAccount>[
-        SavedAccount(email: 'a@example.com', lastUsedAt: 1000),
-        SavedAccount(email: 'b@example.com', lastUsedAt: 2000),
+      encodeSavedAccounts(<SavedAccount>[
+        SavedAccount(email: _email('a@example.com'), lastUsedAt: 1000),
+        SavedAccount(email: _email('b@example.com'), lastUsedAt: 2000),
       ]),
     );
     await h.container.read(authControllerProvider.future);
@@ -192,7 +195,7 @@ void main() {
     );
 
     final AuthState state = h.container.read(authControllerProvider).value!;
-    expect(state.email, 'a@example.com', reason: '备份失败不能切走');
+    expect(state.email?.value, 'a@example.com', reason: '备份失败不能切走');
     expect(state.signedIn, isTrue);
   });
 
@@ -201,14 +204,14 @@ void main() {
     final repo = BookRepository(h.db);
     final Book aBook = await repo.create(name: 'A 的账本', ownerId: 'a@example.com');
     final Book bBook = await repo.create(name: 'B 的账本', ownerId: 'b@example.com');
-    await h.store.write(sessionKeyFor('a@example.com'), _session('a').toStorageJson());
+    await h.store.write(sessionKeyFor(_email('a@example.com')), _session('a').toStorageJson());
     final meta = AppMetaRepository(h.db);
     await meta.set(kActiveAccountKey, 'a@example.com');
     await meta.set(kSyncEmailKey, 'a@example.com');
     await meta.set(
       kSyncAccountsKey,
-      encodeSavedAccounts(const <SavedAccount>[
-        SavedAccount(email: 'a@example.com', lastUsedAt: 1),
+      encodeSavedAccounts(<SavedAccount>[
+        SavedAccount(email: _email('a@example.com'), lastUsedAt: 1),
       ]),
     );
     await meta.set(kCloudSyncEnabledKey, '1');
@@ -244,14 +247,14 @@ void main() {
   test('邮箱归一：大写登录也能看见同一账号的账本', () async {
     final h = await _harness();
     await h.store.write(
-      sessionKeyFor('a@example.com'),
+      sessionKeyFor(_email('a@example.com')),
       _session('a').toStorageJson(),
     );
-    await h.store.write(sessionKeyFor('a@example.com'), _session('a').toStorageJson());
+    await h.store.write(sessionKeyFor(_email('a@example.com')), _session('a').toStorageJson());
     await AppMetaRepository(h.db).set(
       kSyncAccountsKey,
-      encodeSavedAccounts(const <SavedAccount>[
-        SavedAccount(email: 'a@example.com', lastUsedAt: 1),
+      encodeSavedAccounts(<SavedAccount>[
+        SavedAccount(email: _email('a@example.com'), lastUsedAt: 1),
       ]),
     );
     final Book book = await BookRepository(h.db).create(name: 'A 账本', ownerId: 'a@example.com');
@@ -260,7 +263,7 @@ void main() {
     await h.container.read(authControllerProvider.notifier).switchTo('A@Example.COM');
 
     final state = h.container.read(authControllerProvider).value!;
-    expect(state.email, 'a@example.com', reason: '归一化后应是小写');
+    expect(state.email?.value, 'a@example.com', reason: '归一化后应是小写');
     expect(
       (await BookRepository(h.db).listVisible()).map((Book b) => b.id),
       <String>[book.id],
@@ -305,7 +308,7 @@ void main() {
     addTearDown(second.dispose);
     final AuthState again = await second.read(authControllerProvider.future);
 
-    expect(again.accounts.map((SavedAccount a) => a.email), <String>['old@example.com']);
+    expect(again.accounts.map((SavedAccount a) => a.email.value), <String>['old@example.com']);
   });
 
   test('bootstrapPull 拉完 11 页（不吃 10 页上限）', () async {
@@ -367,14 +370,14 @@ void main() {
     final h = await _harness(failPull: true);
     await _seedAccountA(h.db, h.store);
     await h.store.write(
-      sessionKeyFor('b@example.com'),
+      sessionKeyFor(_email('b@example.com')),
       _session('b').toStorageJson(),
     );
     await AppMetaRepository(h.db).set(
       kSyncAccountsKey,
-      encodeSavedAccounts(const <SavedAccount>[
-        SavedAccount(email: 'a@example.com', lastUsedAt: 1000),
-        SavedAccount(email: 'b@example.com', lastUsedAt: 2000),
+      encodeSavedAccounts(<SavedAccount>[
+        SavedAccount(email: _email('a@example.com'), lastUsedAt: 1000),
+        SavedAccount(email: _email('b@example.com'), lastUsedAt: 2000),
       ]),
     );
     await h.container.read(authControllerProvider.future);
@@ -385,7 +388,7 @@ void main() {
     );
 
     final AuthState state = h.container.read(authControllerProvider).value!;
-    expect(state.email, 'a@example.com', reason: '拉取失败要退回原账号');
+    expect(state.email?.value, 'a@example.com', reason: '拉取失败要退回原账号');
     expect(state.signedIn, isTrue);
   });
 }

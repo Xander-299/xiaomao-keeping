@@ -59,7 +59,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
   @override
   void initState() {
     super.initState();
-    _email.text = ref.read(authControllerProvider).value?.email ?? '';
+    _email.text = ref.read(authControllerProvider).value?.email?.value ?? '';
   }
 
   @override
@@ -388,7 +388,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
           child: ToonCard(
             padding: EdgeInsets.zero,
             child: InkWell(
-              key: ValueKey<String>('account-${account.email}'),
+              key: ValueKey<String>('account-${account.email.value}'),
               borderRadius: BorderRadius.circular(Tok.rLg),
               onTap: () => _switchTo(account),
               child: Padding(
@@ -400,7 +400,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           Text(
-                            account.email,
+                            account.email.value,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -423,7 +423,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
                       ),
                     ),
                     IconButton(
-                      key: ValueKey<String>('account-remove-${account.email}'),
+                      key: ValueKey<String>('account-remove-${account.email.value}'),
                       tooltip: '移除账号',
                       icon: Icon(Icons.close_rounded, size: 18, color: p.ink2),
                       onPressed: () => _removeAccount(account),
@@ -485,7 +485,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
     );
     if (ok != true || !mounted) return;
 
-    final String? from = ref.read(authControllerProvider).value?.email;
+    final String? from = ref.read(authControllerProvider).value?.email?.value;
     final ValueNotifier<AccountSwitchStage> stage =
         ValueNotifier<AccountSwitchStage>(AccountSwitchStage.backingUp);
     unawaited(showDialog<void>(
@@ -498,7 +498,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
           content: ValueListenableBuilder<AccountSwitchStage>(
             valueListenable: stage,
             builder: (BuildContext context, AccountSwitchStage value, Widget? _) =>
-                Text(_stageText(value, from: from, to: account.email)),
+                Text(_stageText(value, from: from, to: account.email.value)),
           ),
         ),
       ),
@@ -508,7 +508,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
     try {
       await ref
           .read(accountSwitcherProvider)
-          .switchTo(account.email, onStage: (AccountSwitchStage s) => stage.value = s);
+          .switchTo(account.email.value, onStage: (AccountSwitchStage s) => stage.value = s);
     } on Object catch (e) {
       failure = _describe(e);
     } finally {
@@ -560,7 +560,7 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
     if (ok != true || !mounted) return;
     await ref
         .read(authControllerProvider.notifier)
-        .removeAccount(account.email);
+        .removeAccount(account.email.value);
     if (!mounted) return;
     setState(() {
       if (ref.read(authControllerProvider).value?.accounts.isEmpty ?? false) {
@@ -806,7 +806,7 @@ class _StatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ToonPalette p = context.toon;
-    final String title = auth.signedIn ? (auth.email ?? '已登录') : '未登录';
+    final String title = auth.signedIn ? (auth.email?.value ?? '已登录') : '未登录';
     // 开关状态在下方功能卡里已有，这里不再重复
     final String subtitle = auth.signedIn ? '已登录' : '未登录';
 
