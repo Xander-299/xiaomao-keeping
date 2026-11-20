@@ -38,7 +38,7 @@ Future<void> main(List<String> args) async {
     while (await it.moveNext()) {
       final dynamic msg = jsonDecode(it.current as String);
       if (msg is Map && msg['id'] == myId) {
-        return Map<String, dynamic>.from(msg as Map);
+        return Map<String, dynamic>.from(msg);
       }
     }
     throw StateError('connection closed');
