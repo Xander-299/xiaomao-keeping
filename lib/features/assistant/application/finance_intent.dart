@@ -89,6 +89,27 @@ class Period {
   }
 }
 
+// ────────────────────────────── 会话上下文 ──────────────────────────────
+
+/// 上一句问到的「上下文」，用于多轮追问（`那餐饮呢` / `大额的呢`）。
+///
+/// 只记**时间区间与方向**：分类名、商户关键词必须由本句给出 ——
+/// 继承类别会让「那交通呢」变成「餐饮+交通」，口径就说不清了。
+///
+/// 解析层仍然是无状态的：上下文由调用方（`ChatController`）持有并显式传入。
+class AssistantContext {
+  const AssistantContext({this.period, this.kind = 'expense'});
+
+  /// 上一句实际查的区间（null = 还没有过成功的查询）。
+  final Period? period;
+
+  /// 上一句的方向：`expense` / `income` / `both`。
+  final String kind;
+
+  @override
+  String toString() => 'AssistantContext(${period?.label ?? '无区间'}, $kind)';
+}
+
 // ────────────────────────────── 意图 ──────────────────────────────
 
 /// 一次查询的意图。
@@ -162,6 +183,23 @@ final class SavingsGoalIntent extends FinanceIntent {
   final int targetCents;
 }
 
+/// 某个商户 / 备注关键词的支出：`星巴克花了多少`。
+final class MerchantSpendingIntent extends FinanceIntent {
+  const MerchantSpendingIntent({
+    required this.period,
+    required this.keyword,
+    required this.kind,
+  });
+
+  final Period period;
+
+  /// 原文里的关键词（已去前缀）；回答里原样回显，方便用户确认匹配到了什么。
+  final String keyword;
+
+  /// `expense` / `income`。
+  final String kind;
+}
+
 /// 不认识的问题 → 交给 UI 给「可以这样问」的示例，绝不瞎答。
 final class UnknownIntent extends FinanceIntent {
   const UnknownIntent(this.question);
@@ -175,6 +213,7 @@ Period? windowOf(FinanceIntent intent) => switch (intent) {
   CategorySpendingIntent(:final Period period) => period,
   BudgetIntent(:final Period period) => period,
   TopExpensesIntent(:final Period period) => period,
+  MerchantSpendingIntent(:final Period period) => period,
   CompareIntent(:final Period current, :final Period previous) => Period(
     startMs: previous.startMs,
     endMs: current.endMs,
@@ -201,7 +240,10 @@ const Map<String, List<String>> kCategoryAliases = <String, List<String>>{
 };
 
 /// 判断「大额」类问题的词。
-final RegExp _reTop = RegExp(r'大额|最贵|最大的一笔|花得最多|花钱最多|前\s*\d+\s*笔|top\s*\d+', caseSensitive: false);
+final RegExp _reTop = RegExp(
+  r'大额|最贵|最大的一笔|花得最多|花钱最多|前\s*\d+\s*笔|top\s*\d+',
+  caseSensitive: false,
+);
 
 /// 判断「对比 / 变化」类问题的词。
 final RegExp _reCompare = RegExp(r'为什么|为何|比上|对比|相比|增长|下降|多了|少了|多花|少花|变化');
@@ -233,9 +275,12 @@ FinanceIntent parseFinanceIntent(
   required List<String> expenseCategories,
   required List<String> incomeCategories,
   required int nowMs,
+  AssistantContext? context,
 }) {
   final String text = _normalize(raw);
   final DateTime now = DateTime.fromMillisecondsSinceEpoch(nowMs);
+  // 追问时沿用上一句的区间；本句显式说了时间就以本句为准（见 _parsePeriod 末尾）。
+  final Period? fallback = context?.period;
 
   // ① 储蓄目标（纯算术，最优先：它含「存」「多久」，会被后面的词误判）
   final SavingsGoalIntent? savings = _parseSavings(text);
@@ -243,25 +288,33 @@ FinanceIntent parseFinanceIntent(
 
   // ② 预算
   if (_reBudget.hasMatch(text)) {
-    final Period p = _parsePeriod(text, now, nowMs);
+    final Period p = _parsePeriod(text, now, nowMs, fallback: fallback);
     // 预算按自然月存，「近 30 天」这种区间没有预算可查 → 退回本月
-    return BudgetIntent(period: p.isWholeMonth ? p : Period.month(now.year, now.month));
+    return BudgetIntent(
+      period: p.isWholeMonth ? p : Period.month(now.year, now.month),
+    );
   }
 
   // ③ 大额支出
   if (_reTop.hasMatch(text)) {
-    final Period p = _parseTopPeriod(text, now, nowMs);
+    final Period p = _parseTopPeriod(text, now, nowMs, fallback: fallback);
     return TopExpensesIntent(period: p);
   }
 
   // ④ 对比（必须早于「汇总」和「分类」）
   if (_reCompare.hasMatch(text)) {
-    final ({Period current, Period previous})? pair = _parseComparePair(text, now, nowMs);
+    final ({Period current, Period previous})? pair = _parseComparePair(
+      text,
+      now,
+      nowMs,
+      fallback: fallback,
+    );
     if (pair != null) {
       return CompareIntent(
         current: pair.current,
         previous: pair.previous,
-        categoryFocus: text.contains('分类') || text.contains('哪类') || text.contains('哪一项'),
+        categoryFocus:
+            text.contains('分类') || text.contains('哪类') || text.contains('哪一项'),
       );
     }
   }
@@ -274,16 +327,26 @@ FinanceIntent parseFinanceIntent(
   );
   if (hit != null) {
     return CategorySpendingIntent(
-      period: _parsePeriod(text, now, nowMs),
+      period: _parsePeriod(text, now, nowMs, fallback: fallback),
       categoryName: hit.name,
       kind: hit.kind,
     );
   }
 
-  // ⑥ 收支汇总（默认口径：只问「多少」时给支出；问「收入」时给收入；含「结余/剩」时两者都给）
+  // ⑥ 商户 / 备注关键词：`星巴克花了多少`（分类优先，避免「餐饮」被当成商户）
+  final MerchantSpendingIntent? merchant = _parseMerchant(
+    text,
+    period: _parsePeriod(text, now, nowMs, fallback: fallback),
+    categoryWords: <String>[...expenseCategories, ...incomeCategories],
+  );
+  if (merchant != null) return merchant;
+
+  // ⑦ 收支汇总（默认口径：只问「多少」时给支出；问「收入」时给收入；含「结余/剩」时两者都给）
   if (RegExp(r'花|支出|消费|开支|收入|赚|结余|剩|多少|账').hasMatch(text)) {
-    final String kind = _kindOf(text);
-    return MonthSummaryIntent(period: _parsePeriod(text, now, nowMs), kind: kind);
+    return MonthSummaryIntent(
+      period: _parsePeriod(text, now, nowMs, fallback: fallback),
+      kind: _kindOf(text),
+    );
   }
 
   return UnknownIntent(raw.trim());
@@ -295,21 +358,29 @@ String _normalize(String raw) {
   final String s = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
   // 中文数字 → 阿拉伯数字（「最近三个月」「近七天」），只处理「N 个?月 / N 天」这两种
   // 跟时间有关的用法；金额里的「两千」不做转换（宁可不认，也不猜错）。
-  return s.replaceAllMapped(
-    RegExp(r'([一二两三四五六七八九十]{1,3})\s*(个)?\s*(月|天)'),
-    (Match m) {
-      final int? n = _cnNumber(m.group(1)!);
-      if (n == null) return m.group(0)!;
-      return '$n${m.group(2) ?? ''}${m.group(3)}';
-    },
-  );
+  return s.replaceAllMapped(RegExp(r'([一二两三四五六七八九十]{1,3})\s*(个)?\s*(月|天|周|星期)'), (
+    Match m,
+  ) {
+    final int? n = _cnNumber(m.group(1)!);
+    if (n == null) return m.group(0)!;
+    return '$n${m.group(2) ?? ''}${m.group(3)}';
+  });
 }
 
 /// 「一」…「十二」→ 数字；认不出返回 null（保持原样）。
 int? _cnNumber(String s) {
   const Map<String, int> map = <String, int>{
-    '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5,
-    '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+    '一': 1,
+    '二': 2,
+    '两': 2,
+    '三': 3,
+    '四': 4,
+    '五': 5,
+    '六': 6,
+    '七': 7,
+    '八': 8,
+    '九': 9,
+    '十': 10,
   };
   if (s.length == 1) return map[s];
   if (s.length == 2 && s.startsWith('十')) return 10 + (map[s[1]] ?? 0);
@@ -334,9 +405,13 @@ String _kindOf(String text) {
   return 'expense';
 }
 
-/// 时段：显式年月 > 上/本月 > 今年/去年 > 近 N 天/月 > 默认本月。
-Period _parsePeriod(String text, DateTime now, int nowMs) {
-  final RegExpMatch? ym = RegExp(r'(\d{4})\s*年\s*(\d{1,2})\s*月').firstMatch(text);
+/// 时段：显式日/周 > 显式年月 > 上/本月 > 今年/去年 > 近 N 天/周/月 > [fallback] > 本月。
+///
+/// [fallback] 是**多轮追问**用的「上一句区间」：本句没提时间就沿用它 ——
+/// 这样「这个月花了多少」→「那餐饮呢」查的还是同一个月。
+Period _parsePeriod(String text, DateTime now, int nowMs, {Period? fallback}) {
+  final RegExpMatch? ym = RegExp(r'(\d{4})\s*年\s*(\d{1,2})\s*月')
+      .firstMatch(text);
   if (ym != null) {
     final int y = int.parse(ym.group(1)!);
     final int m = int.parse(ym.group(2)!);
@@ -344,13 +419,60 @@ Period _parsePeriod(String text, DateTime now, int nowMs) {
   }
 
   if (RegExp(r'上个?月|上月').hasMatch(text)) {
-    return Period.month(now.month == 1 ? now.year - 1 : now.year, now.month == 1 ? 12 : now.month - 1);
+    return Period.month(
+      now.month == 1 ? now.year - 1 : now.year,
+      now.month == 1 ? 12 : now.month - 1,
+    );
   }
   if (RegExp(r'这个?月|本月|当月|这月').hasMatch(text)) {
     return Period.month(now.year, now.month);
   }
   if (RegExp(r'今年|本年').hasMatch(text)) return Period.year(now.year);
   if (RegExp(r'去年').hasMatch(text)) return Period.year(now.year - 1);
+
+  // 今天 / 昨天 / 前天（自然日）
+  final RegExpMatch? day = RegExp(r'今天|昨天|前天').firstMatch(text);
+  if (day != null) {
+    final int back = switch (day.group(0)) {
+      '今天' => 0,
+      '昨天' => 1,
+      _ => 2,
+    };
+    final DateTime d = DateTime(now.year, now.month, now.day - back);
+    final DateTime e = DateTime(now.year, now.month, now.day - back + 1);
+    return Period(
+      startMs: d.millisecondsSinceEpoch,
+      endMs: e.millisecondsSinceEpoch,
+      label: '${d.month}月${d.day}日（${day.group(0)}）',
+    );
+  }
+
+  // 周：以周一为起点（国内习惯）
+  if (RegExp(r'上上周|上上星期').hasMatch(text)) {
+    return _weekPeriod(
+      _weekStart(now).subtract(const Duration(days: 14)),
+      label: '上上周',
+    );
+  }
+  if (RegExp(r'上周|上星期|上个星期').hasMatch(text)) {
+    return _weekPeriod(
+      _weekStart(now).subtract(const Duration(days: 7)),
+      label: '上周',
+    );
+  }
+  if (RegExp(r'这周|本周|这星期|这个星期').hasMatch(text)) {
+    return _weekPeriod(_weekStart(now), label: '本周');
+  }
+  final RegExpMatch? weeks = RegExp(r'(?:最近|近)\s*(\d+)\s*(?:个)?\s*(?:周|星期)')
+      .firstMatch(text);
+  if (weeks != null) {
+    final int n = int.parse(weeks.group(1)!);
+    if (n > 0 && n <= 52) {
+      final DateTime start = _weekStart(now)
+          .subtract(Duration(days: 7 * (n - 1)));
+      return _weekPeriod(start, label: '近 $n 周', weeks: n);
+    }
+  }
 
   // 「10 月」这种单说月份：不晚于当前月 → 今年；否则算去年
   final RegExpMatch? mOnly = RegExp(r'(?<!\d年)(\d{1,2})\s*月').firstMatch(text);
@@ -362,26 +484,71 @@ Period _parsePeriod(String text, DateTime now, int nowMs) {
     }
   }
 
-  final RegExpMatch? days = RegExp(r'最近?\s*(\d+)\s*天|近\s*(\d+)\s*天').firstMatch(text);
+  final RegExpMatch? days = RegExp(r'最近?\s*(\d+)\s*天|近\s*(\d+)\s*天')
+      .firstMatch(text);
   if (days != null) {
     final int n = int.parse(days.group(1) ?? days.group(2)!);
     if (n > 0 && n <= 3650) return Period.lastDays(nowMs, n);
   }
-  final RegExpMatch? months = RegExp(r'最近?\s*(\d+)\s*个?月|近\s*(\d+)\s*个?月').firstMatch(text);
+  final RegExpMatch? months = RegExp(r'最近?\s*(\d+)\s*个?月|近\s*(\d+)\s*个?月')
+      .firstMatch(text);
   if (months != null) {
     final int n = int.parse(months.group(1) ?? months.group(2)!);
     if (n > 0 && n <= 120) return Period.lastMonths(nowMs, n);
   }
   if (RegExp(r'最近一个月|近一个月').hasMatch(text)) return Period.lastDays(nowMs, 30);
 
-  return Period.month(now.year, now.month);
+  return fallback ?? Period.month(now.year, now.month);
 }
 
-/// 大额支出默认看「近 90 天」；用户显式说了时间就按用户说的。
-Period _parseTopPeriod(String text, DateTime now, int nowMs) {
-  final bool explicitTime =
-      RegExp(r'\d+\s*月|\d+\s*天|这个?月|上个?月|今年|去年').hasMatch(text);
-  if (explicitTime) return _parsePeriod(text, now, nowMs);
+/// 本周一 00:00（周一起算）。
+DateTime _weekStart(DateTime d) {
+  final DateTime day = DateTime(d.year, d.month, d.day);
+  return day.subtract(Duration(days: day.weekday - 1));
+}
+
+/// 从 [start]（必须是周一）开始的整周区间；[weeks] > 1 时连成一段。
+Period _weekPeriod(DateTime start, {required String label, int weeks = 1}) {
+  final DateTime end = DateTime(start.year, start.month, start.day + 7 * weeks);
+  return Period(
+    startMs: start.millisecondsSinceEpoch,
+    endMs: end.millisecondsSinceEpoch,
+    label:
+        '$label（${start.month}月${start.day}日–${end.subtract(const Duration(days: 1)).month}月${end.subtract(const Duration(days: 1)).day}日）',
+  );
+}
+
+/// 上一个**等长**区间（「比上个月呢」用）：
+/// 整月 → 上月；整年 → 去年；其余按跨度平移。
+Period previousPeriodOf(Period p) {
+  if (p.isWholeMonth) {
+    final int y = p.year!;
+    final int m = p.month!;
+    return Period.month(m == 1 ? y - 1 : y, m == 1 ? 12 : m - 1);
+  }
+  final int span = p.endMs - p.startMs;
+  final DateTime start = DateTime.fromMillisecondsSinceEpoch(p.startMs - span);
+  final DateTime end = DateTime.fromMillisecondsSinceEpoch(p.startMs);
+  return Period(
+    startMs: start.millisecondsSinceEpoch,
+    endMs: end.millisecondsSinceEpoch,
+    label: '${start.month}月${start.day}日–${end.month}月${end.day}日',
+  );
+}
+
+/// 大额支出默认看「近 90 天」；用户显式说了时间就按用户说的；
+/// 追问（「大额的呢」）沿用上一句区间。
+Period _parseTopPeriod(
+  String text,
+  DateTime now,
+  int nowMs, {
+  Period? fallback,
+}) {
+  final bool explicitTime = RegExp(
+    r'\d+\s*月|\d+\s*天|\d+\s*周|这个?月|上个?月|今年|去年|今天|昨天|前天|这周|上周',
+  ).hasMatch(text);
+  if (explicitTime) return _parsePeriod(text, now, nowMs, fallback: fallback);
+  if (fallback != null && RegExp(r'呢$').hasMatch(text)) return fallback;
   return Period.lastDays(nowMs, 90);
 }
 
@@ -389,9 +556,11 @@ Period _parseTopPeriod(String text, DateTime now, int nowMs) {
 ({Period current, Period previous})? _parseComparePair(
   String text,
   DateTime now,
-  int nowMs,
-) {
-  final RegExpMatch? months = RegExp(r'最近?\s*(\d+)\s*个?月|近\s*(\d+)\s*个?月').firstMatch(text);
+  int nowMs, {
+  Period? fallback,
+}) {
+  final RegExpMatch? months = RegExp(r'最近?\s*(\d+)\s*个?月|近\s*(\d+)\s*个?月')
+      .firstMatch(text);
   if (months != null) {
     final int n = int.parse(months.group(1) ?? months.group(2)!);
     if (n > 0 && n <= 24) {
@@ -414,7 +583,8 @@ Period _parseTopPeriod(String text, DateTime now, int nowMs) {
   }
 
   // 显式年月：2026年9月 vs 2026年8月
-  final RegExpMatch? ym = RegExp(r'(\d{4})\s*年\s*(\d{1,2})\s*月').firstMatch(text);
+  final RegExpMatch? ym = RegExp(r'(\d{4})\s*年\s*(\d{1,2})\s*月')
+      .firstMatch(text);
   if (ym != null) {
     final int y = int.parse(ym.group(1)!);
     final int m = int.parse(ym.group(2)!);
@@ -423,6 +593,11 @@ Period _parseTopPeriod(String text, DateTime now, int nowMs) {
       final Period prev = Period.month(m == 1 ? y - 1 : y, m == 1 ? 12 : m - 1);
       return (current: cur, previous: prev);
     }
+  }
+
+  // 追问（「比上个月呢」）：拿上一句的区间当「当前」，再取等长的前一段
+  if (fallback != null && fallback.isWholeMonth == false) {
+    return (current: fallback, previous: previousPeriodOf(fallback));
   }
 
   // 默认：本月 vs 上月
@@ -500,4 +675,36 @@ int _amountCents(String number, String? unit) {
     '千' => base * 1000,
     _ => base,
   };
+}
+
+/// 商户 / 备注关键词：`星巴克花了多少` / `在星巴克消费了多少`。
+///
+/// 判据保守：关键词 1–8 字、不含时间词、不是已有分类名 —— 否则「这个月花了多少」
+/// 会把「这个月」当成商户。匹配走 `note.contains`（自动记账把通知文案写进备注）。
+MerchantSpendingIntent? _parseMerchant(
+  String text, {
+  required Period period,
+  required List<String> categoryWords,
+}) {
+  final RegExpMatch? m = RegExp(
+    r'(?:在)?\s*([^\s，。？！?]{1,8}?)\s*(?:花了|消费了?|付了|用了)\s*(?:多少|多少钱)',
+  ).firstMatch(text);
+  if (m == null) return null;
+  String keyword = m.group(1)!.trim();
+  // 去掉常见前缀，别把「我」「这个月」当商户
+  keyword = keyword.replaceAll(RegExp(r'^(我|这个|上个月|本月|最近)'), '').trim();
+  if (keyword.isEmpty || keyword.length < 2) return null;
+  // 时间词 / 分类名 / 纯数字 → 不是商户
+  if (RegExp(r'今天|昨天|前天|这周|上周|月|年|天|周|号|星期').hasMatch(keyword)) {
+    return null;
+  }
+  for (final String c in categoryWords) {
+    if (c == keyword || keyword.contains(c)) return null;
+  }
+  if (RegExp(r'^\d+$').hasMatch(keyword)) return null;
+
+  final String kind = _reIncome.hasMatch(text) && !_reExpense.hasMatch(text)
+      ? 'income'
+      : 'expense';
+  return MerchantSpendingIntent(period: period, keyword: keyword, kind: kind);
 }

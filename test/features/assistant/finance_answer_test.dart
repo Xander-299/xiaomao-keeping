@@ -276,6 +276,60 @@ void main() {
     });
   });
 
+  group('商户 / 备注', () {
+    // 10 月：星巴克 3 笔（45 + 32 + 61），另有一笔「星巴克臻选」不该被「星巴克」以外的词影响
+    final List<TxRow> rows = <TxRow>[
+      _tx(id: 'm1', type: 'expense', cents: 4500, at: DateTime(2026, 10, 3), categoryId: 'c-food', note: '星巴克 拿铁'),
+      _tx(id: 'm2', type: 'expense', cents: 3200, at: DateTime(2026, 10, 9), categoryId: 'c-food', note: '星巴克'),
+      _tx(id: 'm3', type: 'expense', cents: 6100, at: DateTime(2026, 10, 20), categoryId: 'c-food', note: '星巴克 蛋糕'),
+      _tx(id: 'm4', type: 'expense', cents: 2000, at: DateTime(2026, 10, 21), categoryId: 'c-food', note: '瑞幸'),
+    ];
+
+    test('合计 / 笔数 / 最近一笔都对得上', () {
+      final FinanceAnswer a = buildFinanceAnswer(
+        MerchantSpendingIntent(
+          period: Period.month(2026, 10),
+          keyword: '星巴克',
+          kind: 'expense',
+        ),
+        FinanceData(rows: rows, categoryNames: _names, nowMs: _nowMs),
+      );
+      expect(a.headline, '¥138.00'); // 45 + 32 + 61
+      expect(a.narrative, contains('共 3 笔'));
+      expect(a.narrative, contains('10月20日')); // 最近一笔（不是最后插入的那条）
+      expect(a.narrative, contains('¥61.00'));
+    });
+
+    test('没有匹配 → 明说没有，不编数字', () {
+      final FinanceAnswer a = buildFinanceAnswer(
+        MerchantSpendingIntent(
+          period: Period.month(2026, 10),
+          keyword: '肯德基',
+          kind: 'expense',
+        ),
+        FinanceData(rows: rows, categoryNames: _names, nowMs: _nowMs),
+      );
+      expect(a.headline, isNull);
+      expect(a.narrative, contains('没有备注里带「肯德基」的支出'));
+    });
+
+    test('只认方向：收入关键词不会把支出算进来', () {
+      final List<TxRow> mixed = <TxRow>[
+        ...rows,
+        _tx(id: 'i1', type: 'income', cents: 50000, at: DateTime(2026, 10, 5), note: '星巴克 退款'),
+      ];
+      final FinanceAnswer a = buildFinanceAnswer(
+        MerchantSpendingIntent(
+          period: Period.month(2026, 10),
+          keyword: '星巴克',
+          kind: 'expense',
+        ),
+        FinanceData(rows: mixed, categoryNames: _names, nowMs: _nowMs),
+      );
+      expect(a.headline, '¥138.00', reason: '收入那笔不能被算进「花了多少」');
+    });
+  });
+
   group('不认识', () {
     test('给示例问题，不编答案', () {
       final FinanceAnswer a = buildFinanceAnswer(

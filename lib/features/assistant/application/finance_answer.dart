@@ -117,7 +117,11 @@ String _monthDay(int ms) {
 
 /// 挑几笔"值得追问"的建议（按意图给，别每次都是同一套）。
 List<String> _defaultSuggestions(FinanceIntent intent) => switch (intent) {
-  MonthSummaryIntent() => const <String>['这个月餐饮花了多少', '本月预算还剩多少', '这个月为什么比上个月多'],
+  MonthSummaryIntent() => const <String>[
+    '这个月餐饮花了多少',
+    '本月预算还剩多少',
+    '这个月为什么比上个月多',
+  ],
   CategorySpendingIntent(:final String categoryName) => <String>[
     '$categoryName 最近三个月花了多少',
     '这个月花了多少',
@@ -125,6 +129,7 @@ List<String> _defaultSuggestions(FinanceIntent intent) => switch (intent) {
   BudgetIntent() => const <String>['这个月花了多少', '这个月为什么比上个月多'],
   CompareIntent() => const <String>['这个月花了多少', '最近有哪些大额支出'],
   TopExpensesIntent() => const <String>['这个月餐饮花了多少', '这个月花了多少'],
+  MerchantSpendingIntent() => const <String>['这个月花了多少', '最近有哪些大额支出'],
   SavingsGoalIntent() => const <String>['这个月花了多少', '本月预算还剩多少'],
   UnknownIntent() => kExampleQuestions,
 };
@@ -137,6 +142,7 @@ FinanceAnswer buildFinanceAnswer(FinanceIntent intent, FinanceData data) {
     BudgetIntent() => _budget(intent, data),
     CompareIntent() => _compare(intent, data),
     TopExpensesIntent() => _topExpenses(intent, data),
+    MerchantSpendingIntent() => _merchant(intent, data),
     SavingsGoalIntent() => _savings(intent, data),
     UnknownIntent() => _unknown(intent),
   };
@@ -173,13 +179,19 @@ FinanceAnswer _monthSummary(MonthSummaryIntent intent, FinanceData data) {
   final List<AnswerFact> facts = <AnswerFact>[
     AnswerFact('支出', _yuan(s.expenseCents), note: '$expenseCount 笔'),
     AnswerFact('收入', _yuan(s.incomeCents), note: '$incomeCount 笔'),
-    AnswerFact('结余', _yuan(s.balanceCents), note: s.balanceCents >= 0 ? '有结余' : '入不敷出'),
+    AnswerFact(
+      '结余',
+      _yuan(s.balanceCents),
+      note: s.balanceCents >= 0 ? '有结余' : '入不敷出',
+    ),
   ];
 
   final StringBuffer narrative = StringBuffer();
   if (intent.kind == 'income') {
     narrative.write('$period收入 ${_yuan(s.incomeCents)}');
-    narrative.write('，支出 ${_yuan(s.expenseCents)}，结余 ${_yuan(s.balanceCents)}。');
+    narrative.write(
+      '，支出 ${_yuan(s.expenseCents)}，结余 ${_yuan(s.balanceCents)}。',
+    );
   } else {
     narrative.write('$period支出 ${_yuan(s.expenseCents)}');
     narrative.write('，收入 ${_yuan(s.incomeCents)}，结余 ${_yuan(s.balanceCents)}。');
@@ -204,14 +216,19 @@ FinanceAnswer _monthSummary(MonthSummaryIntent intent, FinanceData data) {
         : '支出共 ${s.expenseCents == 0 ? 0 : expenseCount} 笔 · 最大分类「${expenseSlices.first.name}」',
     facts: facts,
     narrative: narrative.toString(),
-    tone: s.expenseCents > 0 && s.balanceCents < 0 ? AnswerTone.warn : AnswerTone.neutral,
+    tone: s.expenseCents > 0 && s.balanceCents < 0
+        ? AnswerTone.warn
+        : AnswerTone.neutral,
     suggestions: _defaultSuggestions(intent),
   );
 }
 
 // ────────────────────────────── 分类 ──────────────────────────────
 
-FinanceAnswer _categorySpending(CategorySpendingIntent intent, FinanceData data) {
+FinanceAnswer _categorySpending(
+  CategorySpendingIntent intent,
+  FinanceData data,
+) {
   final String period = intent.period.label;
   final String name = intent.categoryName;
   final bool isIncome = intent.kind == 'income';
@@ -223,7 +240,10 @@ FinanceAnswer _categorySpending(CategorySpendingIntent intent, FinanceData data)
     type: intent.kind,
     nameOf: (String? id) => data.categoryNames[id] ?? '未分类',
   );
-  final int total = slices.fold<int>(0, (int acc, CategorySlice s) => acc + s.cents);
+  final int total = slices.fold<int>(
+    0,
+    (int acc, CategorySlice s) => acc + s.cents,
+  );
 
   // 二级账单要计入父级（PRD FR-CAT-03）：问「餐饮」时，记在「早餐 / 午餐」上的钱也算进来。
   // 判据是「自己命中」或「父级命中」—— 问「早餐」只算早餐，不会把整个餐饮都算上。
@@ -233,7 +253,8 @@ FinanceAnswer _categorySpending(CategorySpendingIntent intent, FinanceData data)
   for (final TxRow t in periodRows) {
     if (t.type != intent.kind || t.categoryId == null) continue;
     final String? own = data.categoryNames[t.categoryId];
-    final String? parent = data.categoryNames[data.categoryParents[t.categoryId]];
+    final String? parent =
+        data.categoryNames[data.categoryParents[t.categoryId]];
     if (own != name && parent != name) continue;
     hitCents += t.amountCents;
     count++;
@@ -244,7 +265,9 @@ FinanceAnswer _categorySpending(CategorySpendingIntent intent, FinanceData data)
       title: '$period · $name',
       narrative: '$period没有「$name」的$kindWord记录。',
       tone: AnswerTone.warn,
-      facts: <AnswerFact>[if (total > 0) AnswerFact('该期$kindWord合计', _yuan(total))],
+      facts: <AnswerFact>[
+        if (total > 0) AnswerFact('该期$kindWord合计', _yuan(total)),
+      ],
       suggestions: _defaultSuggestions(intent),
     );
   }
@@ -276,7 +299,8 @@ FinanceAnswer _budget(BudgetIntent intent, FinanceData data) {
   if (budget == null || budget <= 0) {
     return FinanceAnswer(
       title: '$label · 预算',
-      narrative: '$label还没设预算（首页「本月预算」卡片可以设）。'
+      narrative:
+          '$label还没设预算（首页「本月预算」卡片可以设）。'
           '${spent > 0 ? '目前已经花了 ${_yuan(spent)}。' : ''}',
       tone: AnswerTone.warn,
       facts: <AnswerFact>[AnswerFact('已花', _yuan(spent))],
@@ -288,7 +312,8 @@ FinanceAnswer _budget(BudgetIntent intent, FinanceData data) {
     budgetCents: budget,
     spentCents: spent,
     year: period.year ?? DateTime.fromMillisecondsSinceEpoch(data.nowMs).year,
-    month: period.month ?? DateTime.fromMillisecondsSinceEpoch(data.nowMs).month,
+    month:
+        period.month ?? DateTime.fromMillisecondsSinceEpoch(data.nowMs).month,
     nowMs: data.nowMs,
   );
 
@@ -296,7 +321,11 @@ FinanceAnswer _budget(BudgetIntent intent, FinanceData data) {
     AnswerFact('预算', _yuan(view.budgetCents)),
     AnswerFact('已花', _yuan(view.spentCents), note: view.percentText),
     if (view.overspent)
-      AnswerFact('超支', _yuan(view.overspentCents), note: '超出 ${view.percentText}')
+      AnswerFact(
+        '超支',
+        _yuan(view.overspentCents),
+        note: '超出 ${view.percentText}',
+      )
     else
       AnswerFact('剩余', _yuan(view.remainingCents)),
     AnswerFact('本月日均', _yuan(view.dailyAvgCents)),
@@ -306,23 +335,31 @@ FinanceAnswer _budget(BudgetIntent intent, FinanceData data) {
 
   final StringBuffer narrative = StringBuffer();
   if (view.overspent) {
-    narrative.write('$label已经超支 ${_yuan(view.overspentCents)}'
-        '（预算 ${_yuan(view.budgetCents)}，已花 ${_yuan(view.spentCents)}，'
-        '用了 ${view.percentText}）。');
+    narrative.write(
+      '$label已经超支 ${_yuan(view.overspentCents)}'
+      '（预算 ${_yuan(view.budgetCents)}，已花 ${_yuan(view.spentCents)}，'
+      '用了 ${view.percentText}）。',
+    );
     if (view.daysLeft != null) {
       narrative.write('这个月还剩 ${view.daysLeft} 天，接下来不要再花才能不扩大超支。');
     }
   } else {
-    narrative.write('$label预算 ${_yuan(view.budgetCents)}，已花 ${_yuan(view.spentCents)}，'
-        '还剩 ${_yuan(view.remainingCents)}（用了 ${view.percentText}）。');
+    narrative.write(
+      '$label预算 ${_yuan(view.budgetCents)}，已花 ${_yuan(view.spentCents)}，'
+      '还剩 ${_yuan(view.remainingCents)}（用了 ${view.percentText}）。',
+    );
     if (view.dailyRemainingCents != null) {
-      narrative.write('剩下 ${view.daysLeft} 天，每天还能花 ${_yuan(view.dailyRemainingCents!)}。');
+      narrative.write(
+        '剩下 ${view.daysLeft} 天，每天还能花 ${_yuan(view.dailyRemainingCents!)}。',
+      );
     }
   }
 
   return FinanceAnswer(
     title: '$label · 预算',
-    headline: view.overspent ? _yuan(view.overspentCents) : _yuan(view.remainingCents),
+    headline: view.overspent
+        ? _yuan(view.overspentCents)
+        : _yuan(view.remainingCents),
     headlineNote: view.overspent
         ? '超支 · 已花 ${_yuan(view.spentCents)} / 预算 ${_yuan(view.budgetCents)}'
         : '剩余 · 已花 ${_yuan(view.spentCents)} / 预算 ${_yuan(view.budgetCents)}',
@@ -354,9 +391,12 @@ int _spanDaysOf(List<TxRow> rows) {
   }
   final DateTime a = DateTime.fromMillisecondsSinceEpoch(min);
   final DateTime b = DateTime.fromMillisecondsSinceEpoch(max);
-  final int days = DateTime(b.year, b.month, b.day)
-          .difference(DateTime(a.year, a.month, a.day))
-          .inDays +
+  final int days =
+      DateTime(
+        b.year,
+        b.month,
+        b.day,
+      ).difference(DateTime(a.year, a.month, a.day)).inDays +
       1;
   return days < 1 ? 1 : days;
 }
@@ -384,7 +424,9 @@ FinanceAnswer _compare(CompareIntent intent, FinanceData data) {
 
   final int delta = cur - prev;
   final String arrow = delta > 0 ? '多' : (delta < 0 ? '少' : '持平');
-  final String pct = prev == 0 ? '—' : '${delta >= 0 ? '+' : ''}${_ratioText(delta.abs(), prev)}';
+  final String pct = prev == 0
+      ? '—'
+      : '${delta >= 0 ? '+' : ''}${_ratioText(delta.abs(), prev)}';
 
   // 分类变化（只比较支出）
   Map<String, int> byCategory(List<TxRow> rows) {
@@ -400,19 +442,32 @@ FinanceAnswer _compare(CompareIntent intent, FinanceData data) {
   final Map<String, int> curCat = byCategory(curRows);
   final Map<String, int> prevCat = byCategory(prevRows);
   final Set<String> names = <String>{...curCat.keys, ...prevCat.keys};
-  final List<({String name, int delta})> deltas = <({String name, int delta})>[
-    for (final String n in names) (name: n, delta: (curCat[n] ?? 0) - (prevCat[n] ?? 0)),
-  ]..sort((({String name, int delta}) a, ({String name, int delta}) b) => b.delta.compareTo(a.delta));
+  final List<({String name, int delta})> deltas =
+      <({String name, int delta})>[
+        for (final String n in names)
+          (name: n, delta: (curCat[n] ?? 0) - (prevCat[n] ?? 0)),
+      ]..sort(
+        (({String name, int delta}) a, ({String name, int delta}) b) =>
+            b.delta.compareTo(a.delta),
+      );
 
-  final List<({String name, int delta})> ups = deltas.where((({String name, int delta}) d) => d.delta > 0).take(3).toList();
-  final List<({String name, int delta})> downs = deltas.where((({String name, int delta}) d) => d.delta < 0).take(2).toList();
+  final List<({String name, int delta})> ups = deltas
+      .where((({String name, int delta}) d) => d.delta > 0)
+      .take(3)
+      .toList();
+  final List<({String name, int delta})> downs = deltas
+      .where((({String name, int delta}) d) => d.delta < 0)
+      .take(2)
+      .toList();
 
   // 「不完整区间 vs 完整区间」必须点破，否则就是误导（Prompt §3 明确要求）。
   // 判据用**数据本身的跨度**，不猜日历：两边「有记录的天数」差一倍以上就算不平衡
   // （实测场景：微信账单只导出了 8/29–9/29，8 月只有 3 天有记录 → 直接比总额会放大 30 倍）。
   final int curSpan = _spanDaysOf(curRows);
   final int prevSpan = _spanDaysOf(prevRows);
-  final bool unbalanced = curSpan > 0 && prevSpan > 0 &&
+  final bool unbalanced =
+      curSpan > 0 &&
+      prevSpan > 0 &&
       (curSpan * 10 < prevSpan * 6 || prevSpan * 10 < curSpan * 6);
   final int curDaily = curSpan > 0 ? (cur + curSpan ~/ 2) ~/ curSpan : 0;
   final int prevDaily = prevSpan > 0 ? (prev + prevSpan ~/ 2) ~/ prevSpan : 0;
@@ -422,12 +477,22 @@ FinanceAnswer _compare(CompareIntent intent, FinanceData data) {
   narrative.write(delta == 0 ? '两期持平。' : '$arrow ${_yuan(delta.abs())}（$pct）。');
   if (ups.isNotEmpty) {
     narrative.write('涨得最多的是');
-    narrative.write(ups.map((({String name, int delta}) d) => '「${d.name}」+${_yuan(d.delta)}').join('、'));
+    narrative.write(
+      ups
+          .map(
+            (({String name, int delta}) d) => '「${d.name}」+${_yuan(d.delta)}',
+          )
+          .join('、'),
+    );
     narrative.write('。');
   }
   if (intent.categoryFocus && downs.isNotEmpty) {
     narrative.write('同时');
-    narrative.write(downs.map((({String name, int delta}) d) => '「${d.name}」${_yuan(d.delta)}').join('、'));
+    narrative.write(
+      downs
+          .map((({String name, int delta}) d) => '「${d.name}」${_yuan(d.delta)}')
+          .join('、'),
+    );
     narrative.write(' 有所下降。');
   }
   if (unbalanced) {
@@ -439,18 +504,26 @@ FinanceAnswer _compare(CompareIntent intent, FinanceData data) {
 
   return FinanceAnswer(
     title: '$curLabel vs $prevLabel',
-    headline: delta == 0 ? _yuan(0) : '${delta > 0 ? '+' : '-'}${_yuan(delta.abs())}',
+    headline: delta == 0
+        ? _yuan(0)
+        : '${delta > 0 ? '+' : '-'}${_yuan(delta.abs())}',
     headlineNote: delta == 0 ? '两期支出持平' : '$arrow花 · $pct',
     facts: <AnswerFact>[
       AnswerFact(curLabel, _yuan(cur)),
       AnswerFact(prevLabel, _yuan(prev)),
-      AnswerFact('差额', delta == 0 ? '¥0.00' : '${delta > 0 ? '+' : '-'}${_yuan(delta.abs())}', note: pct),
+      AnswerFact(
+        '差额',
+        delta == 0 ? '¥0.00' : '${delta > 0 ? '+' : '-'}${_yuan(delta.abs())}',
+        note: pct,
+      ),
       if (unbalanced)
         AnswerFact('日均（$curSpan 天）', _yuan(curDaily), note: curLabel),
       if (unbalanced)
         AnswerFact('日均（$prevSpan 天）', _yuan(prevDaily), note: prevLabel),
-      if (ups.isNotEmpty) AnswerFact('涨最多', '${ups.first.name} +${_yuan(ups.first.delta)}'),
-      if (downs.isNotEmpty) AnswerFact('降最多', '${downs.first.name} ${_yuan(downs.first.delta)}'),
+      if (ups.isNotEmpty)
+        AnswerFact('涨最多', '${ups.first.name} +${_yuan(ups.first.delta)}'),
+      if (downs.isNotEmpty)
+        AnswerFact('降最多', '${downs.first.name} ${_yuan(downs.first.delta)}'),
     ],
     narrative: narrative.toString(),
     tone: delta > 0 ? AnswerTone.warn : AnswerTone.good,
@@ -463,8 +536,9 @@ FinanceAnswer _compare(CompareIntent intent, FinanceData data) {
 FinanceAnswer _topExpenses(TopExpensesIntent intent, FinanceData data) {
   final String period = intent.period.label;
   final List<TxRow> periodRows = _rowsIn(data.rows, intent.period);
-  final List<TxRow> expenses = periodRows.where((TxRow t) => t.type == 'expense').toList()
-    ..sort((TxRow a, TxRow b) => b.amountCents.compareTo(a.amountCents));
+  final List<TxRow> expenses =
+      periodRows.where((TxRow t) => t.type == 'expense').toList()
+        ..sort((TxRow a, TxRow b) => b.amountCents.compareTo(a.amountCents));
   final int total = summarize(periodRows).expenseCents;
 
   if (expenses.isEmpty) {
@@ -477,7 +551,10 @@ FinanceAnswer _topExpenses(TopExpensesIntent intent, FinanceData data) {
   }
 
   final List<TxRow> top = expenses.take(intent.limit).toList();
-  final int topSum = top.fold<int>(0, (int acc, TxRow t) => acc + t.amountCents);
+  final int topSum = top.fold<int>(
+    0,
+    (int acc, TxRow t) => acc + t.amountCents,
+  );
 
   final List<AnswerFact> facts = <AnswerFact>[
     for (final TxRow t in top)
@@ -505,7 +582,8 @@ FinanceAnswer _topExpenses(TopExpensesIntent intent, FinanceData data) {
 // ────────────────────────────── 储蓄目标 ──────────────────────────────
 
 FinanceAnswer _savings(SavingsGoalIntent intent, FinanceData data) {
-  final int months = (intent.targetCents + intent.monthlyCents - 1) ~/ intent.monthlyCents;
+  final int months =
+      (intent.targetCents + intent.monthlyCents - 1) ~/ intent.monthlyCents;
   final DateTime now = DateTime.fromMillisecondsSinceEpoch(data.nowMs);
   final DateTime done = DateTime(now.year, now.month + months, now.day);
   final int saved = intent.monthlyCents * months;
@@ -513,13 +591,18 @@ FinanceAnswer _savings(SavingsGoalIntent intent, FinanceData data) {
   return FinanceAnswer(
     title: '储蓄计划',
     headline: '$months 个月',
-    headlineNote: '每月存 ${_yuan(intent.monthlyCents)} → 目标 ${_yuan(intent.targetCents)}',
+    headlineNote:
+        '每月存 ${_yuan(intent.monthlyCents)} → 目标 ${_yuan(intent.targetCents)}',
     facts: <AnswerFact>[
       AnswerFact('每月存', _yuan(intent.monthlyCents)),
       AnswerFact('目标', _yuan(intent.targetCents)),
       AnswerFact('需要', '$months 个月'),
       AnswerFact('大约', '${done.year} 年 ${done.month} 月'),
-      AnswerFact('届时共存', _yuan(saved), note: '多出 ${_yuan(saved - intent.targetCents)}'),
+      AnswerFact(
+        '届时共存',
+        _yuan(saved),
+        note: '多出 ${_yuan(saved - intent.targetCents)}',
+      ),
     ],
     narrative:
         '每月存 ${_yuan(intent.monthlyCents)}，攒够 ${_yuan(intent.targetCents)} 需要 $months 个月，'
@@ -540,5 +623,64 @@ FinanceAnswer _unknown(UnknownIntent _) {
         '试试问我：本月花了多少、某个分类花了多少、预算还剩多少、为什么比上个月多、最近的大额支出。',
     tone: AnswerTone.warn,
     suggestions: kExampleQuestions,
+  );
+}
+
+// ────────────────────────────── 商户 / 备注 ──────────────────────────────
+
+/// 「星巴克花了多少」：按备注关键词过滤，给合计 + 笔数 + 最近一笔。
+///
+/// 为什么用备注：自动记账把通知原文写进 `note`，手动记账的商户也常写在备注里 ——
+/// 这是唯一跨 App 的商户载体（没有独立的 merchant 字段）。
+FinanceAnswer _merchant(MerchantSpendingIntent intent, FinanceData data) {
+  final String period = intent.period.label;
+  final String needle = intent.keyword.toLowerCase();
+  final List<TxRow> matched = <TxRow>[
+    for (final TxRow t in _rowsIn(data.rows, intent.period))
+      if (t.type == intent.kind && t.note.toLowerCase().contains(needle)) t,
+  ]..sort((TxRow a, TxRow b) => b.occurredAt.compareTo(a.occurredAt));
+
+  final String unit = intent.kind == 'income' ? '收入' : '支出';
+
+  if (matched.isEmpty) {
+    return FinanceAnswer(
+      title: '$period · 「${intent.keyword}」',
+      narrative: '$period没有备注里带「${intent.keyword}」的$unit。',
+      tone: AnswerTone.warn,
+      suggestions: _defaultSuggestions(intent),
+    );
+  }
+
+  final int total = matched.fold<int>(
+    0,
+    (int acc, TxRow t) => acc + t.amountCents,
+  );
+  final TxRow latest = matched.first;
+
+  return FinanceAnswer(
+    title: '$period · 「${intent.keyword}」$unit',
+    headline: _yuan(total),
+    narrative:
+        '共 ${matched.length} 笔。最近一笔 ${_monthDay(latest.occurredAt)} ${_yuan(latest.amountCents)}'
+        '${latest.note.isEmpty ? '' : '（${latest.note}）'}。',
+    tone: AnswerTone.good,
+    facts: <AnswerFact>[
+      AnswerFact('合计', _yuan(total), note: '${matched.length} 笔'),
+      AnswerFact(
+        '最近一笔',
+        _yuan(latest.amountCents),
+        note: _monthDay(latest.occurredAt),
+      ),
+      if (matched.length > 1)
+        AnswerFact(
+          '最多一笔',
+          _yuan(
+            matched
+                .map((TxRow t) => t.amountCents)
+                .reduce((int a, int b) => a > b ? a : b),
+          ),
+        ),
+    ],
+    suggestions: _defaultSuggestions(intent),
   );
 }
