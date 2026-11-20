@@ -24,23 +24,27 @@ class SavedAccount {
     if (email == null) return null;
     return SavedAccount(
       email: email,
-      lastUsedAt: json['lastUsedAt'] is num
-          ? (json['lastUsedAt']! as num).toInt()
-          : 0,
+      lastUsedAt: DateTime.fromMillisecondsSinceEpoch(
+        json['lastUsedAt'] is num ? (json['lastUsedAt']! as num).toInt() : 0,
+      ),
     );
   }
 
   final Email email;
 
-  /// 毫秒时间戳，用于列表排序（最近用的在最上面）。
-  final int lastUsedAt;
+  /// 最近一次使用时间，用于列表排序（最近用的在最上面）。
+  ///
+  /// 类型是 `DateTime` 而不是 int 毫秒：排序、比较、「多久没用了」这类判断
+  /// 都在这里做，别让每个调用方自己记「这是毫秒还是秒」。落盘仍是毫秒（见 [toJson]）。
+  final DateTime lastUsedAt;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'email': email.value,
-    'lastUsedAt': lastUsedAt,
+    // 落盘口径保持不变（毫秒，与历史数据兼容）
+    'lastUsedAt': lastUsedAt.millisecondsSinceEpoch,
   };
 
-  SavedAccount touch(int at) => SavedAccount(email: email, lastUsedAt: at);
+  SavedAccount touch(DateTime at) => SavedAccount(email: email, lastUsedAt: at);
 }
 
 /// 解析 `sync_accounts`；坏数据 / 空值一律当「没有保存过账号」。
@@ -54,7 +58,7 @@ List<SavedAccount> parseSavedAccounts(String? raw) {
         if (item is Map)
           ?SavedAccount.tryFromJson(Map<String, Object?>.from(item)),
     ];
-    out.sort((SavedAccount a, SavedAccount b) => b.lastUsedAt - a.lastUsedAt);
+    out.sort((SavedAccount a, SavedAccount b) => b.lastUsedAt.compareTo(a.lastUsedAt));
     return out;
   } catch (_) {
     return const <SavedAccount>[];

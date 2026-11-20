@@ -37,8 +37,12 @@ class _Transport implements SyncTransport {
     if (failPull && request.uri.path == '/v1/sync/pull') {
       throw const SocketException('offline');
     }
-    if (request.uri.path == '/v1/backups/latest') {
+    // 备份接口按方法区分：GET 最新备份 = 没有（404），PUT = 上传成功，GET 列表 = 空
+    if (request.uri.path == '/v1/backups/latest' && request.method == 'GET') {
       return const SyncResponse(statusCode: 404, body: '{"error":"not_found"}');
+    }
+    if (request.uri.path == '/v1/backups' && request.method == 'GET') {
+      return const SyncResponse(statusCode: 200, body: '[]');
     }
     return SyncResponse(
       statusCode: 200,
@@ -57,10 +61,14 @@ AuthSession _session(String tag) => AuthSession(
   expiresAt: DateTime.now().add(const Duration(minutes: 30)),
 );
 
-Future<
-  ({ProviderContainer container, AppDatabase db, MemoryTokenStore store, _Transport transport})
->
-_harness({bool failNetwork = false, bool failPull = false}) async {
+typedef _Harness = ({
+  ProviderContainer container,
+  AppDatabase db,
+  MemoryTokenStore store,
+  _Transport transport,
+});
+
+Future<_Harness> _harness({bool failNetwork = false, bool failPull = false}) async {
   final AppDatabase db = openTestDatabase();
   final MemoryTokenStore store = MemoryTokenStore();
   final _Transport transport = _Transport(
@@ -80,6 +88,29 @@ _harness({bool failNetwork = false, bool failPull = false}) async {
   return (container: container, db: db, store: store, transport: transport);
 }
 
+/// 在 A 的基础上再放一个 b 的 token + 两个账号的列表（切号用）。
+Future<void> _seedAccountBAndBoth(_Harness h) async {
+  await _seedAccountA(h.db, h.store);
+  await h.store.write(
+    sessionKeyFor(_email('b@example.com')),
+    _session('b').toStorageJson(),
+  );
+  await AppMetaRepository(h.db).set(
+    kSyncAccountsKey,
+    encodeSavedAccounts(<SavedAccount>[
+      SavedAccount(
+        email: _email('a@example.com'),
+        lastUsedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+      ),
+      SavedAccount(
+        email: _email('b@example.com'),
+        lastUsedAt: DateTime.fromMillisecondsSinceEpoch(2000),
+      ),
+    ]),
+  );
+  await h.container.read(authControllerProvider.future);
+}
+
 /// 造一个「已登录 A、A 名下有一个账本」的状态。
 Future<Book> _seedAccountA(
   AppDatabase db,
@@ -95,7 +126,7 @@ Future<Book> _seedAccountA(
   await meta.set(
     kSyncAccountsKey,
     encodeSavedAccounts(<SavedAccount>[
-      SavedAccount(email: _email(email), lastUsedAt: 1000),
+      SavedAccount(email: _email(email), lastUsedAt: DateTime.fromMillisecondsSinceEpoch(1000)),
     ]),
   );
   final Book book = await BookRepository(db).create(name: 'A 的账本', ownerId: email);
@@ -134,8 +165,8 @@ void main() {
     await meta.set(
       kSyncAccountsKey,
       encodeSavedAccounts(<SavedAccount>[
-        SavedAccount(email: _email('a@example.com'), lastUsedAt: 1000),
-        SavedAccount(email: _email('b@example.com'), lastUsedAt: 2000),
+        SavedAccount(email: _email('a@example.com'), lastUsedAt: DateTime.fromMillisecondsSinceEpoch(1000)),
+        SavedAccount(email: _email('b@example.com'), lastUsedAt: DateTime.fromMillisecondsSinceEpoch(2000)),
       ]),
     );
     final AuthController auth = h.container.read(authControllerProvider.notifier);
@@ -183,8 +214,8 @@ void main() {
     await AppMetaRepository(h.db).set(
       kSyncAccountsKey,
       encodeSavedAccounts(<SavedAccount>[
-        SavedAccount(email: _email('a@example.com'), lastUsedAt: 1000),
-        SavedAccount(email: _email('b@example.com'), lastUsedAt: 2000),
+        SavedAccount(email: _email('a@example.com'), lastUsedAt: DateTime.fromMillisecondsSinceEpoch(1000)),
+        SavedAccount(email: _email('b@example.com'), lastUsedAt: DateTime.fromMillisecondsSinceEpoch(2000)),
       ]),
     );
     await h.container.read(authControllerProvider.future);
@@ -211,7 +242,7 @@ void main() {
     await meta.set(
       kSyncAccountsKey,
       encodeSavedAccounts(<SavedAccount>[
-        SavedAccount(email: _email('a@example.com'), lastUsedAt: 1),
+        SavedAccount(email: _email('a@example.com'), lastUsedAt: DateTime.fromMillisecondsSinceEpoch(1)),
       ]),
     );
     await meta.set(kCloudSyncEnabledKey, '1');
@@ -254,7 +285,7 @@ void main() {
     await AppMetaRepository(h.db).set(
       kSyncAccountsKey,
       encodeSavedAccounts(<SavedAccount>[
-        SavedAccount(email: _email('a@example.com'), lastUsedAt: 1),
+        SavedAccount(email: _email('a@example.com'), lastUsedAt: DateTime.fromMillisecondsSinceEpoch(1)),
       ]),
     );
     final Book book = await BookRepository(h.db).create(name: 'A 账本', ownerId: 'a@example.com');
@@ -376,8 +407,8 @@ void main() {
     await AppMetaRepository(h.db).set(
       kSyncAccountsKey,
       encodeSavedAccounts(<SavedAccount>[
-        SavedAccount(email: _email('a@example.com'), lastUsedAt: 1000),
-        SavedAccount(email: _email('b@example.com'), lastUsedAt: 2000),
+        SavedAccount(email: _email('a@example.com'), lastUsedAt: DateTime.fromMillisecondsSinceEpoch(1000)),
+        SavedAccount(email: _email('b@example.com'), lastUsedAt: DateTime.fromMillisecondsSinceEpoch(2000)),
       ]),
     );
     await h.container.read(authControllerProvider.future);
@@ -390,6 +421,47 @@ void main() {
     final AuthState state = h.container.read(authControllerProvider).value!;
     expect(state.email?.value, 'a@example.com', reason: '拉取失败要退回原账号');
     expect(state.signedIn, isTrue);
+  });
+
+  group('切号步骤表（顺序 = 执行顺序）', () {
+    test('已登录切号：备份 → 切 session → 恢复备份 → 拉增量', () async {
+      final h = await _harness();
+      await _seedAccountBAndBoth(h);
+
+      final List<AccountSwitchStage> stages = <AccountSwitchStage>[];
+      await h.container
+          .read(accountSwitcherProvider)
+          .switchTo('b@example.com', onStage: stages.add);
+
+      expect(stages, <AccountSwitchStage>[
+        AccountSwitchStage.backingUp,
+        AccountSwitchStage.switching,
+        AccountSwitchStage.restoring,
+        AccountSwitchStage.pulling,
+      ]);
+    });
+
+    test('本来没登录：不备份（没有旧账号可备），只剩三步', () async {
+      final h = await _harness();
+      // 只有 b 的 token，尚未登录任何账号
+      await h.store.write(
+        sessionKeyFor(_email('b@example.com')),
+        _session('b').toStorageJson(),
+      );
+      await h.container.read(authControllerProvider.future);
+
+      final List<AccountSwitchStage> stages = <AccountSwitchStage>[];
+      await h.container
+          .read(accountSwitcherProvider)
+          .switchTo('b@example.com', onStage: stages.add);
+
+      expect(stages, <AccountSwitchStage>[
+        AccountSwitchStage.switching,
+        AccountSwitchStage.restoring,
+        AccountSwitchStage.pulling,
+      ]);
+      expect(stages, isNot(contains(AccountSwitchStage.backingUp)));
+    });
   });
 }
 

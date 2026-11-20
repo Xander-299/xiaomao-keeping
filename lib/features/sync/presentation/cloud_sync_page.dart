@@ -410,9 +410,9 @@ class _CloudSyncPageState extends ConsumerState<CloudSyncPage> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            account.lastUsedAt == 0
+                            account.lastUsedAt.millisecondsSinceEpoch == 0
                                 ? '未使用过'
-                                : '上次使用 ${_stamp(DateTime.fromMillisecondsSinceEpoch(account.lastUsedAt))}',
+                                : '上次使用 ${_stamp(account.lastUsedAt)}',
                             style: TextStyle(
                               fontSize: 11.5,
                               fontWeight: FontWeight.w600,

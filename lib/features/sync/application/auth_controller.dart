@@ -194,7 +194,7 @@ class AuthController extends AsyncNotifier<AuthState> {
     final List<SavedAccount> accounts = <SavedAccount>[
       SavedAccount(
         email: email,
-        lastUsedAt: DateTime.now().millisecondsSinceEpoch,
+        lastUsedAt: DateTime.now(),
       ),
     ];
     await meta.set(kSyncAccountsKey, encodeSavedAccounts(accounts));
@@ -337,8 +337,8 @@ class AuthController extends AsyncNotifier<AuthState> {
     final List<SavedAccount> accounts = <SavedAccount>[
       for (final SavedAccount a in state.value?.accounts ?? const <SavedAccount>[])
         if (a.email != email) a,
-      SavedAccount(email: email, lastUsedAt: now.millisecondsSinceEpoch),
-    ]..sort((SavedAccount a, SavedAccount b) => b.lastUsedAt - a.lastUsedAt);
+      SavedAccount(email: email, lastUsedAt: now),
+    ]..sort((SavedAccount a, SavedAccount b) => b.lastUsedAt.compareTo(a.lastUsedAt));
     await meta.set(kSyncAccountsKey, encodeSavedAccounts(accounts));
     await meta.set(kActiveAccountKey, email.value);
     state = AsyncData(
