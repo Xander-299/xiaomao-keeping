@@ -135,6 +135,11 @@ def main() -> None:
         help="本地 release APK 所在目录（用于一起打包）",
     )
     ap.add_argument("--out", default=str(OUT))
+    ap.add_argument(
+        "--no-apk",
+        action="store_true",
+        help="只出页面（APK 已在 OSS 时用这个：包从 59MB 降到 ~1MB，方便传 ECS）",
+    )
     args = ap.parse_args()
 
     version = args.version or read_version()
@@ -192,7 +197,11 @@ def main() -> None:
         shutil.copy2(src, dst)
         copied.append((dst.name, sha256(dst)))
 
-    if copied:
+    if args.no_apk:
+        # 页面里已经指向 OSS 直链，ECS 不需要再带一份 40MB 的包
+        shutil.rmtree(dl, ignore_errors=True)
+        print("[ok] --no-apk：只出页面（下载仍走 --download-base 指向的 OSS）")
+    elif copied:
         (out / "SHA256SUMS.txt").write_text(
             "".join(f"{h}  {n}\n" for n, h in copied), encoding="utf-8"
         )
