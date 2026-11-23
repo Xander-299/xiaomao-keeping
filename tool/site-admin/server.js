@@ -17,6 +17,32 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { DatabaseSync } = require('node:sqlite');
+const tls = require('tls');
+const net = require('net');
+
+// 离线地理位置（可选）：装了就按 IP 归因国家/省/市；没装也不影响其它功能。
+let geoip = null;
+try { geoip = require('/opt/xiaomao-admin/node_modules/geoip-lite'); } catch (_) { try { geoip = require('geoip-lite'); } catch (_) {} }
+
+/** 云同步那套 SMTP 配置（126 邮箱）；没配就只发站内告警。 */
+function loadSmtp() {
+  // 优先用 systemd 注入的环境变量（/etc/xiaomao-admin.env，600 root）；
+  // 读不到再退回去读 sync 的 .env（那个文件通常 www-data 读不到，只作兜底）。
+  const out = { to: process.env.XM_ALERT_TO || '' };
+  const keys = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS', 'MAIL_FROM'];
+  for (const k of keys) if (process.env[k]) out[k] = process.env[k];
+  if (!out.SMTP_HOST || !out.SMTP_USER) {
+    try {
+      const f = process.env.XM_SMTP_ENV || '/opt/xiaomao-sync/.env';
+      for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+        const m = /^([A-Z_]+)=(.*)$/.exec(line.trim());
+        if (m && !out[m[1]]) out[m[1]] = m[2].replace(/^["']|["']$/g, '');
+      }
+    } catch (_) {}
+  }
+  return out;
+}
+const SMTP = loadSmtp();
 
 const LOG_FILE = process.env.XM_LOG || '/www/wwwlogs/xiaomao2.log';
 const DB_FILE = process.env.XM_DB || '/var/lib/xiaomao-admin/hits.db';
@@ -43,7 +69,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_hits_ip ON hits(ip);
   CREATE INDEX IF NOT EXISTS idx_hits_dl ON hits(is_dl);
   CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
+  CREATE TABLE IF NOT EXISTS ipgeo(ip TEXT PRIMARY KEY, country TEXT, region TEXT, city TEXT, at INTEGER);
+  CREATE TABLE IF NOT EXISTS alerts(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, level TEXT NOT NULL,
+    key TEXT NOT NULL, title TEXT NOT NULL, detail TEXT NOT NULL, sent INTEGER DEFAULT 0
+  );
 `);
+
+// 老库补列（v2 → v3）
+for (const col of ['country', 'region', 'city']) {
+  const has = db.prepare('PRAGMA table_info(hits)').all().some((c) => c.name === col);
+  if (!has) db.exec(`ALTER TABLE hits ADD COLUMN ${col} TEXT DEFAULT ''`);
+}
 
 const q = (sql, ...args) => db.prepare(sql).all(...args);
 const one = (sql, ...args) => db.prepare(sql).get(...args);
@@ -86,11 +123,49 @@ function hostOf(ref) {
   }
 }
 
+// ── 地理位置（可选）──────────────────────────────────────
+const geoCache = new Map();
+function geoOf(ip) {
+  const hit = geoCache.get(ip);
+  if (hit) return hit;
+  let out = { country: '', region: '', city: '' };
+  if (geoip) {
+    try {
+      const r = geoip.lookup(ip);
+      if (r) out = { country: r.country || '', region: r.region || '', city: r.city || '' };
+    } catch (_) {}
+  }
+  if (out.country) {
+    try {
+      db.prepare('INSERT INTO ipgeo(ip,country,region,city,at) VALUES(?,?,?,?,?) ON CONFLICT(ip) DO UPDATE SET country=excluded.country, region=excluded.region, city=excluded.city, at=excluded.at')
+        .run(ip, out.country, out.region, out.city, Date.now());
+    } catch (_) {}
+  }
+  geoCache.set(ip, out);
+  return out;
+}
+
 // ── 增量入库 ──────────────────────────────────────────────
 let ingestAt = 0;
+let backfillAt = 0;
+
+/** 老数据补地理：每次最多 500 个 IP，避免启动时卡住；与是否有新日志无关。 */
+function backfillGeo() {
+  if (!geoip || Date.now() - backfillAt < 2000) return;
+  backfillAt = Date.now();
+  try {
+    const pending = q("SELECT DISTINCT ip FROM hits WHERE country = '' OR country IS NULL LIMIT 500");
+    for (const r of pending) {
+      const g = geoOf(r.ip);
+      if (g.country) run('UPDATE hits SET country=?, region=?, city=? WHERE ip=?', g.country, g.region, g.city, r.ip);
+    }
+  } catch (_) {}
+}
+
 function ingest(force = false) {
   if (!force && Date.now() - ingestAt < 5000) return;
   ingestAt = Date.now();
+  backfillGeo();
   let st;
   try {
     st = fs.statSync(LOG_FILE);
@@ -117,8 +192,8 @@ function ingest(force = false) {
   const complete = text.slice(0, lastNl + 1);
   metaSet('offset', offset + Buffer.byteLength(complete, 'utf8'));
 
-  const ins = db.prepare(`INSERT INTO hits(ts,day,hour,ip,method,path,status,bytes,ref,ua,bot,device,os,is_dl,dl_file)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const ins = db.prepare(`INSERT INTO hits(ts,day,hour,ip,method,path,status,bytes,ref,ua,bot,device,os,is_dl,dl_file,country,region,city)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const tx = () => {
     for (const line of complete.split('\n')) {
       if (!line) continue;
@@ -131,13 +206,102 @@ function ingest(force = false) {
       const bot = BOT_RE.test(ua || '') ? 1 : 0;
       const isDl = uri.startsWith('/download/') && uri.endsWith('.apk') ? 1 : 0;
       const dlFile = isDl ? uri.split('/').pop() : null;
+      const g = geoOf(ip);
       ins.run(ts, day, hour, ip, method, uri, Number(status) || 0, Number(bytes) || 0,
-        hostOf(ref), ua || '', bot, deviceOf(ua || ''), osOf(ua || ''), isDl, dlFile);
+        hostOf(ref), ua || '', bot, deviceOf(ua || ''), osOf(ua || ''), isDl, dlFile,
+        g.country, g.region, g.city);
     }
   };
   db.exec('BEGIN');
   try { tx(); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
   run('DELETE FROM hits WHERE day < ?', localDay(-RETAIN_DAYS));
+
+
+}
+
+// ── 告警：检测 + 落库 + 可选邮件 ────────────────────────
+const { spawn } = require('child_process');
+
+function sendMail(subject, text) {
+  return new Promise((resolve) => {
+    if (!SMTP.to || !SMTP.SMTP_HOST || !SMTP.SMTP_USER) return resolve(false);
+    // MAIL_FROM 可能是「小耄记账 <a@b.com>」这种带显示名的写法；
+    // SMTP 的 MAIL FROM 只接受裸地址（126 对带显示名的会回 500）。
+    const fromRaw = SMTP.MAIL_FROM || SMTP.SMTP_USER;
+    const fromAddr = (/<([^>]+)>/.exec(fromRaw) || [null, fromRaw])[1].trim();
+    const secure = String(SMTP.SMTP_SECURE || 'true').toLowerCase() !== 'false';
+    const port = SMTP.SMTP_PORT || (secure ? '465' : '587');
+    const cfgFile = path.join(path.dirname(DB_FILE), '.smtp.curl');
+    const cfg = [
+      `url = "${secure ? 'smtps' : 'smtp'}://${SMTP.SMTP_HOST}:${port}"`,
+      `user = "${SMTP.SMTP_USER}:${SMTP.SMTP_PASS}"`,
+      `mail-from = "${fromAddr}"`,
+      `mail-rcpt = "${SMTP.to}"`,
+    ].join('\n');
+    try {
+      fs.writeFileSync(cfgFile, cfg + '\n', { mode: 0o600 });
+    } catch (_) { return resolve(false); }
+    const msg = [
+      `To: ${SMTP.to}`, `From: ${fromRaw}`,
+      `Subject: =?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`,
+      'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', text, '',
+    ].join('\r\n');
+    const args = ['-sS', '--config', cfgFile, '--upload-file', '-'];
+    if (!secure) args.splice(1, 0, '--ssl-reqd');
+    const cp = spawn('curl', args, { stdio: ['pipe', 'ignore', 'ignore'] });
+    cp.on('error', () => resolve(false));
+    cp.on('close', (code) => resolve(code === 0));
+    cp.stdin.end(msg);
+  });
+}
+
+const SERVICES = ['nginx', 'cloudflared', 'xiaomao-sync'];
+
+function recentAlert(key, withinMin) {
+  const since = new Date(Date.now() - withinMin * 60000).toISOString();
+  return !!one('SELECT id FROM alerts WHERE key = ? AND at >= ?', key, since);
+}
+
+function pushAlert(level, key, title, detail) {
+  if (recentAlert(key, 30)) return null;
+  const at = new Date().toISOString();
+  const sent = 0;
+  run('INSERT INTO alerts(at, level, key, title, detail, sent) VALUES(?,?,?,?,?,?)', at, level, key, title, detail, sent);
+  const row = one('SELECT * FROM alerts ORDER BY id DESC LIMIT 1');
+  sendMail(`[小耄记账] ${title}`, `${title}\n\n${detail}\n\n时间：${at}\n后台：https://admin.xiaomao2.ccwu.cc/`)
+    .then((ok) => { if (ok) run('UPDATE alerts SET sent = 1 WHERE id = ?', row.id); })
+    .catch(() => {});
+  return row;
+}
+
+async function checkAlerts() {
+  const out = [];
+  // 1) 服务状态
+  for (const name of SERVICES) {
+    let state = 'unknown';
+    try { state = require('child_process').execFileSync('systemctl', ['is-active', name], { encoding: 'utf8' }).trim(); }
+    catch (e) { state = (e.stdout || '').trim() || 'inactive'; }
+    if (state !== 'active') out.push(pushAlert('critical', `svc:${name}`, `服务 ${name} 不是 active`, `当前：${state}`));
+  }
+  // 2) 近 10 分钟 5xx
+  const from = new Date(Date.now() - 10 * 60000).toISOString().slice(0, 19).replace('T', 'T');
+  const e5 = one('SELECT COUNT(*) n FROM hits WHERE ts >= ? AND status >= 500', from).n;
+  if (e5 > 3) out.push(pushAlert('warn', '5xx', `近 10 分钟出现 ${e5} 次 5xx`, '去「日志检索」按 5xx 过滤看细节。'));
+  // 3) 磁盘
+  try {
+    const df = require('child_process').execFileSync('df', ['-kP', '/'], { encoding: 'utf8' }).trim().split('\n').pop().split(/\s+/);
+    const ratio = Number(df[2]) / Number(df[1]);
+    if (ratio > 0.85) out.push(pushAlert('warn', 'disk', `磁盘占用 ${(ratio * 100).toFixed(1)}%`, `已用 ${df[2]}KB / 总 ${df[1]}KB`));
+  } catch (_) {}
+  // 4) 流量突增（今天 PV > max(50, 3× 近 7 日均值)）
+  const today = localDay();
+  const pvToday = one(`SELECT COUNT(*) n FROM hits WHERE day = ? AND is_dl=0 AND bot=0 AND status<400`, today).n;
+  const avg = one(`SELECT AVG(pv) a FROM (SELECT day, COUNT(*) pv FROM hits
+      WHERE day >= ? AND day < ? AND is_dl=0 AND bot=0 AND status<400 GROUP BY day)`, localDay(-7), today).a || 0;
+  if (pvToday > Math.max(50, avg * 3)) {
+    out.push(pushAlert('info', 'spike', `今日 PV 突增：${pvToday}`, `近 7 天日均 ${Math.round(avg)}。`));
+  }
+  return out.filter(Boolean);
 }
 
 // ── 查询 ──────────────────────────────────────────────────
@@ -212,6 +376,16 @@ function systems(days) {
     WHERE day >= ? AND is_dl=0 AND bot=0 GROUP BY os ORDER BY n DESC`, fromDay(days));
 }
 
+function geo(days) {
+  const countries = q(`SELECT country k, COUNT(*) n FROM hits
+    WHERE day >= ? AND is_dl=0 AND bot=0 AND country<>'' GROUP BY country ORDER BY n DESC LIMIT 15`, fromDay(days));
+  const regions = q(`SELECT region||' · '||country k, COUNT(*) n FROM hits
+    WHERE day >= ? AND is_dl=0 AND bot=0 AND region<>'' GROUP BY region, country ORDER BY n DESC LIMIT 15`, fromDay(days));
+  const cities = q(`SELECT city||' · '||region k, COUNT(*) n FROM hits
+    WHERE day >= ? AND is_dl=0 AND bot=0 AND city<>'' GROUP BY city, region ORDER BY n DESC LIMIT 15`, fromDay(days));
+  return { countries, regions, cities };
+}
+
 function logs({ days = 7, q: kw = '', status = '', page = 1, size = 50 }) {
   const where = ['day >= ?'];
   const args = [fromDay(days)];
@@ -227,7 +401,7 @@ function logs({ days = 7, q: kw = '', status = '', page = 1, size = 50 }) {
   else if (status) { where.push('status = ?'); args.push(Number(status)); }
   const w = where.join(' AND ');
   const total = one(`SELECT COUNT(*) n FROM hits WHERE ${w}`, ...args).n;
-  const rows = q(`SELECT ts, ip, method, path, status, bytes, ref, ua, bot, dl_file
+  const rows = q(`SELECT ts, ip, method, path, status, bytes, ref, ua, bot, dl_file, country, region, city
     FROM hits WHERE ${w} ORDER BY id DESC LIMIT ? OFFSET ?`, ...args, size, (page - 1) * size);
   return { total, page, size, rows };
 }
@@ -356,7 +530,9 @@ const PAGE = `<!DOCTYPE html>
       <a href="#traffic" data-view="traffic">流量</a>
       <a href="#downloads" data-view="downloads">下载</a>
       <a href="#referrers" data-view="referrers">来源</a>
+      <a href="#geo" data-view="geo">地域</a>
       <a href="#logs" data-view="logs">日志检索</a>
+      <a href="#alerts" data-view="alerts">告警 <b id="alertBadge" style="display:none;background:var(--bad);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">0</b></a>
       <a href="#system" data-view="system">系统状态</a>
     </nav>
     <div class="side-foot">数据：Nginx 日志 · 保留 90 天</div>
@@ -478,6 +654,31 @@ const PAGE = `<!DOCTYPE html>
         + d.devices.map(function (x) { return '<span class="chip">' + esc(x.k) + ' ' + fmt(x.n) + '</span>'; }).join('')
         + '</div><p class="sub" style="margin-top:10px">直接输入网址 / App 内打开通常没有 referer，会记为空。</p></div></div>';
     },
+    geo: function (d) {
+      var bars = function (rows, key) {
+        if (!rows.length) return '<div class="empty">还没有地域数据</div>';
+        var max = Math.max.apply(null, rows.map(function (r) { return r.n; })) || 1;
+        return '<table><tr><th>' + key + '</th><th style="text-align:right">次数</th></tr>' + rows.map(function (r) {
+          var pct = Math.round(r.n / max * 100);
+          return '<tr><td><div style="display:flex;align-items:center;gap:8px"><span style="min-width:90px">' + esc(r.k) + '</span>'
+            + '<span style="flex:1;height:8px;background:var(--chip);border-radius:4px;overflow:hidden"><i style="display:block;width:' + pct + '%;height:100%;background:var(--brand)"></i></span>'
+            + '</div></td><td class="n">' + fmt(r.n) + '</td></tr>';
+        }).join('') + '</table>';
+      };
+      return '<div class="grid"><div class="panel"><h2>国家 / 地区</h2>' + bars(d.countries, '国家')
+        + '</div><div class="panel"><h2>省份 · 城市</h2>' + bars(d.regions, '省份') + '<h2 style="margin-top:12px">城市</h2>' + bars(d.cities, '城市') + '</div></div>';
+    },
+    alerts: function (d) {
+      var rows = d.rows.map(function (a) {
+        var cls = a.level === 'critical' ? 'bad' : (a.level === 'warn' ? 'bad' : 'ok');
+        return '<tr><td class="muted">' + esc(a.at.slice(5, 16).replace('T', ' ')) + '</td>'
+          + '<td class="' + cls + '">' + esc(a.level) + '</td><td>' + esc(a.title) + '</td>'
+          + '<td class="muted">' + esc(a.detail) + '</td><td class="muted">' + (a.sent ? '已邮件' : '站内') + '</td></tr>';
+      });
+      return '<div class="panel"><div class="filters"><button class="btn" id="check-alerts">立即巡检</button>'
+        + '<span class="muted">每 5 分钟自动巡检：服务状态 / 10 分钟内 5xx / 磁盘 > 85% / 今日 PV 突增</span></div>'
+        + table(['时间', '级别', '内容', '详情', '通知'], rows, '还没有告警') + '</div>';
+    },
     logs: function () {
       return '<div class="panel"><div class="filters">'
         + '<input id="q" type="search" placeholder="搜 IP / 路径 / UA" value="' + esc(state.q) + '">'
@@ -510,8 +711,18 @@ const PAGE = `<!DOCTYPE html>
     return '<div class="kpi' + (hi ? ' hi' : '') + '"><b>' + fmt(value) + '</b><span>' + label + '</span></div>';
   }
 
+  function loadBadge() {
+    fetch('/api/alerts', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      var b = document.getElementById('alertBadge');
+      if (!b) return;
+      b.style.display = d.unread ? 'inline-block' : 'none';
+      b.textContent = d.unread;
+    }).catch(function () {});
+  }
+
   function load() {
     var v = state.view;
+    loadBadge();
     $('#meta').textContent = '读取中…';
     var p;
     if (v === 'overview') p = api('/api/overview?range=' + state.days).then(function (d) {
@@ -524,6 +735,16 @@ const PAGE = `<!DOCTYPE html>
     else if (v === 'traffic') p = api('/api/traffic?range=' + state.days).then(function (d) { view().innerHTML = VIEWS.traffic(d); });
     else if (v === 'downloads') p = api('/api/downloads?range=' + state.days).then(function (d) { view().innerHTML = VIEWS.downloads(d); });
     else if (v === 'referrers') p = api('/api/referrers?range=' + state.days).then(function (d) { view().innerHTML = VIEWS.referrers(d); });
+    else if (v === 'geo') p = api('/api/geo?range=' + state.days).then(function (d) { view().innerHTML = VIEWS.geo(d); });
+    else if (v === 'alerts') {
+      view().innerHTML = '<div class="muted">读取中…</div>';
+      p = api('/api/alerts').then(function (d) {
+        view().innerHTML = VIEWS.alerts(d);
+        $('#check-alerts').onclick = function () {
+          fetch('/api/alerts/check', { cache: 'no-store' }).then(function () { load(); });
+        };
+      });
+    }
     else if (v === 'system') p = api('/api/system').then(function (d) { view().innerHTML = VIEWS.system(d); });
     else if (v === 'logs') {
       view().innerHTML = VIEWS.logs();
@@ -551,9 +772,10 @@ const PAGE = `<!DOCTYPE html>
         return '<tr><td class="muted">' + esc(r.ts.slice(5, 19).replace('T', ' ')) + '</td><td><code>' + esc(r.ip) + '</code></td>'
           + '<td><code>' + esc(r.path) + '</code></td><td class="' + cls + '">' + r.status + '</td>'
           + '<td class="muted">' + (r.dl_file ? '⬇ ' + esc(r.dl_file) : '') + '</td>'
+          + '<td class="muted">' + esc([r.country, r.region, r.city].filter(Boolean).join(' · ') || '—') + '</td>'
           + '<td class="muted" title="' + esc(r.ua) + '">' + esc((r.ua || '').slice(0, 42)) + '</td></tr>';
       });
-      $('#logtable').innerHTML = table(['时间', 'IP', '路径', '状态', '下载', 'UA'], rows, '没有匹配的记录');
+      $('#logtable').innerHTML = table(['时间', 'IP', '路径', '状态', '下载', '地区', 'UA'], rows, '没有匹配的记录');
       var pages = Math.max(1, Math.ceil(d.total / d.size));
       $('#pager').innerHTML = '<span>共 ' + fmt(d.total) + ' 条 · 第 ' + d.page + ' / ' + pages + ' 页</span>'
         + '<button class="btn ghost" data-p="' + (d.page - 1) + '"' + (d.page <= 1 ? ' disabled' : '') + '>上一页</button>'
@@ -571,7 +793,7 @@ const PAGE = `<!DOCTYPE html>
     [].forEach.call(document.querySelectorAll('#range button'), function (b) {
       b.classList.toggle('on', Number(b.getAttribute('data-days')) === state.days);
     });
-    $('#title').textContent = ({ overview: '概览', traffic: '流量', downloads: '下载', referrers: '来源', logs: '日志检索', system: '系统状态' })[state.view];
+    $('#title').textContent = ({ overview: '概览', traffic: '流量', downloads: '下载', referrers: '来源', geo: '地域', logs: '日志检索', alerts: '告警', system: '系统状态' })[state.view];
   }
 
   [].forEach.call(document.querySelectorAll('#nav a'), function (a) {
@@ -626,6 +848,20 @@ const server = http.createServer((req, res) => {
     page: Math.max(1, Number(u.searchParams.get('page') || 1)),
     size: Math.min(200, Math.max(10, Number(u.searchParams.get('size') || 50))),
   }));
+  if (p === '/api/geo') return json(res, geo(days));
+  if (p === '/api/alerts') return json(res, {
+    unread: one('SELECT COUNT(*) n FROM alerts WHERE sent = 0').n,
+    rows: q('SELECT id, at, level, title, detail, sent FROM alerts ORDER BY id DESC LIMIT 30'),
+  });
+  if (p === '/api/alerts/test') {
+    sendMail('[小耄记账] 告警通道测试', '这是一封来自站点后台的测试邮件。收到它说明 SMTP 配置可用。')
+      .then((ok) => json(res, { sent: ok, to: SMTP.to || null }));
+    return;
+  }
+  if (p === '/api/alerts/check') {
+    checkAlerts().then((a) => json(res, { created: a.length })).catch((e) => json(res, { error: String(e) }, 500));
+    return;
+  }
   if (p === '/api/hourly') return json(res, hourly(u.searchParams.get('day') || localDay()));
   if (p === '/api/system') return json(res, systemInfo());
   if (p === '/export.csv') {
@@ -642,3 +878,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => console.log(`[xiaomao-admin] http://${HOST}:${PORT} log=${LOG_FILE} db=${DB_FILE}`));
+
+setTimeout(() => { checkAlerts().catch(() => {}); }, 8000);
+setInterval(() => { checkAlerts().catch(() => {}); }, 5 * 60000);
