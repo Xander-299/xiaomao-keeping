@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { DatabaseSync } = require('node:sqlite');
+const crypto = require('crypto');
 const tls = require('tls');
 const net = require('net');
 
@@ -72,6 +73,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_hits_day_bot ON hits(day, bot);
   CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
   CREATE TABLE IF NOT EXISTS ipgeo(ip TEXT PRIMARY KEY, country TEXT, region TEXT, city TEXT, at INTEGER);
+  CREATE TABLE IF NOT EXISTS users(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
+    pass_hash TEXT NOT NULL, created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS sessions(
+    token TEXT PRIMARY KEY, username TEXT NOT NULL, created_at INTEGER NOT NULL,
+    last_seen INTEGER NOT NULL, ua TEXT
+  );
   CREATE TABLE IF NOT EXISTS alerts(
     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, level TEXT NOT NULL,
     key TEXT NOT NULL, title TEXT NOT NULL, detail TEXT NOT NULL, sent INTEGER DEFAULT 0
@@ -450,7 +459,125 @@ function systemInfo() {
   return out;
 }
 
+// ── 登录 / 会话 ──────────────────────────────────────────
+const SESSION_COOKIE = 'xm_sid';
+const SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
+
+function hashPassword(pw) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(pw, salt, 64);
+  return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+function verifyPassword(pw, stored) {
+  const m = /^scrypt\$([0-9a-f]+)\$([0-9a-f]+)$/.exec(stored || '');
+  if (!m) return false;
+  const salt = Buffer.from(m[1], 'hex');
+  const expect = Buffer.from(m[2], 'hex');
+  const got = crypto.scryptSync(pw, salt, expect.length);
+  return crypto.timingSafeEqual(got, expect);
+}
+
+function ensureSeedUser() {
+  const n = one('SELECT COUNT(*) n FROM users').n;
+  if (n > 0) return;
+  const user = process.env.XM_ADMIN_USER || 'admin';
+  const pw = process.env.XM_ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
+  run('INSERT INTO users(username, pass_hash, created_at) VALUES(?,?,?)', user, hashPassword(pw), new Date().toISOString());
+  console.log(`[xiaomao-admin] 初始账号 ${user} / ${pw}（请登录后立即修改）`);
+}
+ensureSeedUser();
+
+function parseCookies(req) {
+  const out = {};
+  for (const part of (req.headers.cookie || '').split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+
+function currentUser(req) {
+  const token = parseCookies(req)[SESSION_COOKIE];
+  if (!token) return null;
+  const row = one('SELECT * FROM sessions WHERE token = ?', token);
+  if (!row) return null;
+  if (Date.now() - row.last_seen > SESSION_TTL_MS) {
+    run('DELETE FROM sessions WHERE token = ?', token);
+    return null;
+  }
+  run('UPDATE sessions SET last_seen = ? WHERE token = ?', Date.now(), token);
+  return { username: row.username, token };
+}
+
+function setSessionCookie(res, token) {
+  res.setHeader('Set-Cookie',
+    `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`);
+}
+function clearSessionCookie(res) {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+}
+
+// 登录失败节流：同 IP 5 分钟内最多 8 次
+const loginFails = new Map();
+function loginBlocked(ip) {
+  const r = loginFails.get(ip);
+  if (!r) return false;
+  if (Date.now() > r.resetAt) { loginFails.delete(ip); return false; }
+  return r.count >= 8;
+}
+function noteLoginFail(ip) {
+  const r = loginFails.get(ip) || { count: 0, resetAt: Date.now() + 5 * 60000 };
+  r.count++;
+  loginFails.set(ip, r);
+}
+
+function readBody(req, limit = 10000) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (c) => {
+      data += c;
+      if (data.length > limit) { reject(new Error('body too large')); req.destroy(); }
+    });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+function clientIp(req) {
+  return (req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '').toString();
+}
+
 // ── HTTP ──────────────────────────────────────────────────
+const LOGIN_PAGE = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · 小耄记账后台</title>
+<style>
+:root{--bg:#FBF4E7;--panel:#fff;--ink:#26242B;--ink2:#6C6C7C;--line:#EFE4D2;--brand:#FFB627;--onBrand:#2A1E00;--bad:#D64545}
+@media (prefers-color-scheme:dark){:root{--bg:#13110D;--panel:#201D17;--ink:#EDE7DC;--ink2:#B7B1A6;--line:#3A342A;--brand:#FFB627;--onBrand:#2A1E00;--bad:#FF7B7B}}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+form{width:320px;background:var(--panel);border:2px solid var(--ink);border-radius:16px;padding:22px 20px;box-shadow:0 8px 0 rgba(0,0,0,.12)}
+h1{font-size:16px;margin:0 0 4px;font-weight:900}p.sub{margin:0 0 16px;font-size:12px;color:var(--ink2)}
+label{display:block;font-size:12px;font-weight:800;margin:10px 0 4px;color:var(--ink2)}
+input{width:100%;font:inherit;padding:9px 10px;border:2px solid var(--ink);border-radius:10px;background:var(--panel);color:var(--ink)}
+button{margin-top:16px;width:100%;font:inherit;font-weight:900;padding:10px;border:2px solid var(--ink);border-radius:10px;background:var(--brand);color:var(--onBrand);cursor:pointer}
+button:active{transform:translate(1px,2px)}
+.err{color:var(--bad);font-size:12px;font-weight:700;min-height:18px;margin-top:10px}
+</style></head><body>
+<form id="f"><h1>小耄记账 · 站点后台</h1><p class="sub">请输入账号密码</p>
+<label for="u">账号</label><input id="u" name="u" autocomplete="username" required>
+<label for="p">密码</label><input id="p" name="p" type="password" autocomplete="current-password" required>
+<button type="submit">登录</button><div class="err" id="e"></div></form>
+<script>
+document.getElementById('f').addEventListener('submit', function (ev) {
+  ev.preventDefault();
+  var e = document.getElementById('e'); e.textContent = '';
+  fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: document.getElementById('u').value, password: document.getElementById('p').value }) })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (x) { if (x.ok) location.replace('/'); else e.textContent = x.d.error || '登录失败'; })
+    .catch(function () { e.textContent = '网络错误，请重试'; });
+});
+</script></body></html>`;
+
 const PAGE = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -536,8 +663,12 @@ const PAGE = `<!DOCTYPE html>
       <a href="#logs" data-view="logs">日志检索</a>
       <a href="#alerts" data-view="alerts">告警 <b id="alertBadge" style="display:none;background:var(--bad);color:#fff;border-radius:9px;padding:0 6px;font-size:11px">0</b></a>
       <a href="#system" data-view="system">系统状态</a>
+      <a href="#settings" data-view="settings">账号设置</a>
     </nav>
-    <div class="side-foot">数据：Nginx 日志 · 保留 90 天</div>
+    <div class="side-foot">
+      <div id="who" style="margin-bottom:8px">—</div>
+      <button class="btn ghost" id="logout" type="button" style="width:100%;font-size:12px">退出登录</button>
+    </div>
   </aside>
   <main>
     <div class="topbar">
@@ -561,7 +692,12 @@ const PAGE = `<!DOCTYPE html>
   var view = function () { return $('#view'); };
   var fmt = function (n) { return (n == null ? 0 : n).toLocaleString('zh-CN'); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); };
-  var api = function (path) { return fetch(path, { cache: 'no-store' }).then(function (r) { return r.json(); }); };
+  var api = function (path) {
+    return fetch(path, { cache: 'no-store' }).then(function (r) {
+      if (r.status === 401) { location.replace('/login'); throw new Error('unauthorized'); }
+      return r.json();
+    });
+  };
 
   function lineChart(rows, series) {
     var w = 720, h = 200, pad = { l: 34, r: 12, t: 10, b: 22 };
@@ -670,6 +806,21 @@ const PAGE = `<!DOCTYPE html>
       return '<div class="grid"><div class="panel"><h2>国家 / 地区</h2>' + bars(d.countries, '国家')
         + '</div><div class="panel"><h2>省份 · 城市</h2>' + bars(d.regions, '省份') + '<h2 style="margin-top:12px">城市</h2>' + bars(d.cities, '城市') + '</div></div>';
     },
+    settings: function (d) {
+      return '<div class="panel" style="max-width:460px"><h2>修改登录密码</h2>'
+        + '<div class="filters" style="display:block">'
+        + '<label style="display:block;font-size:12px;font-weight:800;color:var(--ink2);margin:8px 0 4px">当前账号</label>'
+        + '<div class="muted">' + esc(d.username) + '</div>'
+        + '<label for="old" style="display:block;font-size:12px;font-weight:800;color:var(--ink2);margin:12px 0 4px">原密码</label>'
+        + '<input id="old" type="password" autocomplete="current-password" style="width:100%">'
+        + '<label for="new" style="display:block;font-size:12px;font-weight:800;color:var(--ink2);margin:10px 0 4px">新密码（至少 8 位）</label>'
+        + '<input id="new" type="password" autocomplete="new-password" style="width:100%">'
+        + '<label for="new2" style="display:block;font-size:12px;font-weight:800;color:var(--ink2);margin:10px 0 4px">再输一次</label>'
+        + '<input id="new2" type="password" autocomplete="new-password" style="width:100%">'
+        + '<button class="btn" id="save-pw" type="button" style="margin-top:14px">保存</button>'
+        + '<div class="muted" id="pw-msg" style="margin-top:8px;min-height:18px"></div>'
+        + '</div><p class="sub" style="margin-top:10px">改完会退出其它设备上的会话，当前这台保持登录。</p></div>';
+    },
     alerts: function (d) {
       var rows = d.rows.map(function (a) {
         var cls = a.level === 'critical' ? 'bad' : (a.level === 'warn' ? 'bad' : 'ok');
@@ -748,6 +899,27 @@ const PAGE = `<!DOCTYPE html>
       });
     }
     else if (v === 'system') p = api('/api/system').then(function (d) { view().innerHTML = VIEWS.system(d); });
+    else if (v === 'settings') p = api('/api/session').then(function (d) {
+      view().innerHTML = VIEWS.settings(d);
+      document.getElementById('save-pw').onclick = function () {
+        var oldPw = document.getElementById('old').value;
+        var a = document.getElementById('new').value;
+        var b = document.getElementById('new2').value;
+        var msg = document.getElementById('pw-msg');
+        msg.textContent = '';
+        if (a.length < 8) { msg.textContent = '新密码至少 8 位'; return; }
+        if (a !== b) { msg.textContent = '两次输入不一致'; return; }
+        fetch('/api/password', { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ old: oldPw, new: a }) })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (x) {
+            msg.textContent = x.ok ? '已更新。下次用新密码登录。' : (x.d.error || '修改失败');
+            msg.style.color = x.ok ? 'var(--ok)' : 'var(--bad)';
+            if (x.ok) { document.getElementById('old').value = ''; document.getElementById('new').value = ''; document.getElementById('new2').value = ''; }
+          })
+          .catch(function () { msg.textContent = '网络错误'; });
+      };
+    });
     else if (v === 'logs') {
       view().innerHTML = VIEWS.logs();
       $('#status').value = state.status;
@@ -795,7 +967,7 @@ const PAGE = `<!DOCTYPE html>
     [].forEach.call(document.querySelectorAll('#range button'), function (b) {
       b.classList.toggle('on', Number(b.getAttribute('data-days')) === state.days);
     });
-    $('#title').textContent = ({ overview: '概览', traffic: '流量', downloads: '下载', referrers: '来源', geo: '地域', logs: '日志检索', alerts: '告警', system: '系统状态' })[state.view];
+    $('#title').textContent = ({ overview: '概览', traffic: '流量', downloads: '下载', referrers: '来源', geo: '地域', logs: '日志检索', alerts: '告警', system: '系统状态', settings: '账号设置' })[state.view];
   }
 
   [].forEach.call(document.querySelectorAll('#nav a'), function (a) {
@@ -812,6 +984,17 @@ const PAGE = `<!DOCTYPE html>
       syncNav(); load();
     };
   });
+  fetch('/api/session', { cache: 'no-store' }).then(function (r) {
+    if (r.status === 401) { location.replace('/login'); return null; }
+    return r.json();
+  }).then(function (d) {
+    if (d && d.username) document.getElementById('who').textContent = '登录为 ' + d.username;
+  }).catch(function () {});
+
+  document.getElementById('logout').onclick = function () {
+    fetch('/api/logout', { method: 'POST' }).then(function () { location.replace('/login'); });
+  };
+
   var init = (location.hash || '').replace('#', '');
   if (init && VIEWS[init]) state.view = init;
   syncNav(); load();
@@ -836,6 +1019,64 @@ const server = http.createServer((req, res) => {
   if (p === '/healthz') {
     res.writeHead(200, { 'content-type': 'text/plain' });
     return res.end('ok');
+  }
+
+  // ── 登录 / 登出 / 改密码 ──────────────────────────────
+  if (p === '/login') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    return res.end(LOGIN_PAGE);
+  }
+  if (p === '/api/login' && req.method === 'POST') {
+    const ip = clientIp(req);
+    if (loginBlocked(ip)) return json(res, { error: '尝试太频繁，请 5 分钟后再试' }, 429);
+    return readBody(req).then((raw) => {
+      let body = {};
+      try { body = JSON.parse(raw || '{}'); } catch (_) {}
+      const username = String(body.username || '').trim();
+      const password = String(body.password || '');
+      const row = one('SELECT * FROM users WHERE username = ?', username);
+      if (!row || !verifyPassword(password, row.pass_hash)) {
+        noteLoginFail(ip);
+        return json(res, { error: '账号或密码不对' }, 401);
+      }
+      const token = crypto.randomBytes(32).toString('hex');
+      const now = Date.now();
+      run('INSERT INTO sessions(token, username, created_at, last_seen, ua) VALUES(?,?,?,?,?)',
+        token, username, now, now, (req.headers['user-agent'] || '').slice(0, 200));
+      // 顺手清掉过期会话
+      run('DELETE FROM sessions WHERE last_seen < ?', now - SESSION_TTL_MS);
+      setSessionCookie(res, token);
+      return json(res, { ok: true, username });
+    }).catch(() => json(res, { error: '请求格式不对' }, 400));
+  }
+  if (p === '/api/logout' && req.method === 'POST') {
+    const user = currentUser(req);
+    if (user) run('DELETE FROM sessions WHERE token = ?', user.token);
+    clearSessionCookie(res);
+    return json(res, { ok: true });
+  }
+
+  const user = currentUser(req);
+  if (!user) {
+    if (p.startsWith('/api/')) return json(res, { error: 'unauthorized' }, 401);
+    res.writeHead(302, { location: '/login' });
+    return res.end();
+  }
+
+  if (p === '/api/session') return json(res, { username: user.username });
+  if (p === '/api/password' && req.method === 'POST') {
+    return readBody(req).then((raw) => {
+      let body = {};
+      try { body = JSON.parse(raw || '{}'); } catch (_) {}
+      const oldPw = String(body.old || '');
+      const newPw = String(body.new || '');
+      if (newPw.length < 8) return json(res, { error: '新密码至少 8 位' }, 400);
+      const row = one('SELECT * FROM users WHERE username = ?', user.username);
+      if (!row || !verifyPassword(oldPw, row.pass_hash)) return json(res, { error: '原密码不对' }, 400);
+      run('UPDATE users SET pass_hash = ? WHERE username = ?', hashPassword(newPw), user.username);
+      run('DELETE FROM sessions WHERE username = ? AND token <> ?', user.username, user.token);
+      return json(res, { ok: true });
+    }).catch(() => json(res, { error: '请求格式不对' }, 400));
   }
   if (p === '/api/overview') return json(res, { overview: overview(days), daily: daily(days) });
   if (p === '/api/traffic') return json(res, {
