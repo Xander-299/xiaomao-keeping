@@ -132,6 +132,33 @@ class AutoBookChannel(private val activity: Activity) : MethodChannel.MethodCall
                 result.success(null)
             }
 
+            // ── F7.22 后台常驻与设置引导 ──────────────────────────────
+            "keepAliveStart" -> {
+                AutoBookKeepAlive.start(activity)
+                result.success(true)
+            }
+
+            "keepAliveStop" -> {
+                AutoBookKeepAlive.stop(activity)
+                result.success(true)
+            }
+
+            "keepAliveStatus" -> result.success(AutoBookKeepAlive.running)
+
+            // 省电优化是否已忽略（false = 系统可能随时回收我们）
+            "batteryOptimizationIgnored" -> {
+                val pm = activity.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                result.success(pm?.isIgnoringBatteryOptimizations(activity.packageName) ?: false)
+            }
+
+            // 省电优化设置页（用户手动把我们设为「无限制」）
+            "openBatterySettings" -> result.success(
+                openAction(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            )
+
+            // 自启动设置：MIUI 有专属页面，其它 ROM 退回应用详情页
+            "openAutoStartSettings" -> result.success(openAutoStart())
+
             "cancelReceipt" -> {
                 AutoBookNotifier.cancel(activity)
                 result.success(null)
@@ -165,6 +192,38 @@ class AutoBookChannel(private val activity: Activity) : MethodChannel.MethodCall
             // 部分 ROM 没有这个设置页 → 退回应用详情页
             openAppNotificationSettings()
         }
+    }
+
+    /** 直接打开某个 ACTION；失败返回 false（调用方给文案，不做二次跳转）。 */
+    private fun openAction(action: String): Boolean {
+        return try {
+            activity.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * 自启动设置：MIUI 的 `miui.intent.action.OP_AUTO_START` 只在小米系存在；
+     * 其它 ROM 没有统一入口 → 退到应用详情页（用户自己找「自启动 / 允许后台活动」）。
+     */
+    private fun openAutoStart(): Boolean {
+        val candidates = listOf(
+            Intent("miui.intent.action.OP_AUTO_START").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(android.net.Uri.parse("package:${activity.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        for (intent in candidates) {
+            try {
+                activity.startActivity(intent)
+                return true
+            } catch (_: Exception) {
+                // 试下一个
+            }
+        }
+        return false
     }
 
     private fun openAppNotificationSettings(): Boolean {

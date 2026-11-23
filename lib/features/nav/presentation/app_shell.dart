@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:yanxin/core/theme/tokens.dart';
 import 'package:yanxin/core/theme/toon.dart';
 import 'package:yanxin/features/autobook/application/auto_book_controller.dart';
+import 'package:yanxin/features/autobook/application/auto_book_keep_alive.dart';
 import 'package:yanxin/features/ledger/presentation/widgets/book_drawer.dart';
 import 'package:yanxin/features/onboarding/application/onboarding_prompt.dart';
 import 'package:yanxin/features/sync/application/sync_trigger.dart';
@@ -58,6 +59,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(_ensureKeepAlive());
       unawaited(_drainAutoBook());
       unawaited(_autoSync('回前台'));
     }
@@ -65,6 +67,7 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
 
   Future<void> _onFirstFrame() async {
     await _maybeShowOnboarding();
+    await _ensureKeepAlive();
     await _drainAutoBook();
     // 冷启动：先同步增量，再看要不要补一份全量备份（都静默、都不阻塞）
     await _autoSync('冷启动');
@@ -88,6 +91,19 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
       await ref.read(syncTriggerProvider).maybeAutoBackup();
     } catch (_) {
       // 同上
+    }
+  }
+
+  /// 「后台常驻」幂等拉起（F7.22）：开关为开时确保前台服务在跑。
+  ///
+  /// 为什么不放在页面里：冷启动/回前台都要兜一次（系统可能杀过服务），
+  /// 放在壳里只有一处；用户不开开关时这里什么都不做。
+  Future<void> _ensureKeepAlive() async {
+    if (!mounted) return;
+    try {
+      await ref.read(autoBookKeepAliveProvider.notifier).ensureRunning();
+    } catch (_) {
+      // 常驻只是加强项，失败不打断任何流程
     }
   }
 

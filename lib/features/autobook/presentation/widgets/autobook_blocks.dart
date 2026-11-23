@@ -268,3 +268,153 @@ class _DiagnosticsBlock extends StatelessWidget {
     _ => '',
   };
 }
+
+
+/// 「后台常驻」卡片（F7.22）：开关 + 两行系统状态与入口。
+///
+/// 为什么要把「省电优化 / 自启动」摆在开关下面：开关只负责**我们这一侧**（起前台服务 + 自愈），
+/// 但 MIUI 能不能真的留住进程，还取决于系统那两项 —— 用户看不到它们，就会觉得开关没用。
+class _KeepAliveBlock extends StatelessWidget {
+  const _KeepAliveBlock({
+    required this.enabled,
+    required this.running,
+    required this.batteryIgnored,
+    required this.loading,
+    required this.onToggle,
+    required this.onOpenBattery,
+    required this.onOpenAutoStart,
+  });
+
+  final bool enabled;
+  final bool running;
+  final bool batteryIgnored;
+  final bool loading;
+  final ValueChanged<bool> onToggle;
+  final VoidCallback onOpenBattery;
+  final VoidCallback onOpenAutoStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final ToonPalette p = context.toon;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Icon(Icons.battery_saver_rounded, size: 20, color: p.ink),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    '后台常驻',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: p.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    enabled
+                        ? (running ? '常驻服务运行中 · 通知栏会有一条待命提示' : '已开启，但服务没跑起来（多半被系统挡了）')
+                        : '关：App 不在后台时，支付通知可能收不到',
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.4,
+                      fontWeight: FontWeight.w600,
+                      color: running || !enabled ? p.ink2 : p.red,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Switch(
+              value: enabled,
+              onChanged: loading ? null : onToggle,
+            ),
+          ],
+        ),
+        if (enabled) ...<Widget>[
+          const ToonDashedLine(),
+          _GuideRow(
+            title: '省电优化',
+            ok: batteryIgnored,
+            okText: '已忽略（系统不会随便回收）',
+            badText: '未忽略 —— 点这里设为「无限制」',
+            onTap: onOpenBattery,
+          ),
+          const ToonDashedLine(),
+          _GuideRow(
+            title: '自启动',
+            ok: true,
+            okText: '点这里去系统里确认',
+            badText: '点这里去系统里确认',
+            onTap: onOpenAutoStart,
+            neutral: true,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// 一行「系统侧设置」：左侧标题，右侧状态文案 + 箭头；点整行进设置。
+class _GuideRow extends StatelessWidget {
+  const _GuideRow({
+    required this.title,
+    required this.ok,
+    required this.okText,
+    required this.badText,
+    required this.onTap,
+    this.neutral = false,
+  });
+
+  final String title;
+  final bool ok;
+  final String okText;
+  final String badText;
+  final VoidCallback onTap;
+
+  /// true = 没有「好坏」之分，只是入口（如自启动）。
+  final bool neutral;
+
+  @override
+  Widget build(BuildContext context) {
+    final ToonPalette p = context.toon;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: p.ink2,
+                ),
+              ),
+            ),
+            Flexible(
+              child: Text(
+                neutral ? okText : (ok ? okText : badText),
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: neutral || ok ? p.ink2 : p.red,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right_rounded, size: 16, color: p.ink3),
+          ],
+        ),
+      ),
+    );
+  }
+}

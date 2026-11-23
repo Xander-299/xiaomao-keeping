@@ -72,6 +72,9 @@ class AutoBookListenerService : NotificationListenerService() {
         /** 补抓只认 24 小时内的通知 —— 更早的多半是过期的营销推送，捞回来只会污染账本。 */
         private const val CATCH_UP_MAX_AGE_MS = 24L * 60 * 60 * 1000
 
+        /** 系统当前是否绑着本服务（常驻服务的自愈循环用它判断要不要重绑）。 */
+        fun isBound(): Boolean = instance != null
+
         /** 当前存活的实例（补抓需要实例方法 `activeNotifications`）。 */
         @Volatile
         private var instance: AutoBookListenerService? = null
