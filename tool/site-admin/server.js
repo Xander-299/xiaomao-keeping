@@ -68,6 +68,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_hits_day ON hits(day);
   CREATE INDEX IF NOT EXISTS idx_hits_ip ON hits(ip);
   CREATE INDEX IF NOT EXISTS idx_hits_dl ON hits(is_dl);
+  CREATE INDEX IF NOT EXISTS idx_hits_dl_day ON hits(is_dl, day);
+  CREATE INDEX IF NOT EXISTS idx_hits_day_bot ON hits(day, bot);
   CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
   CREATE TABLE IF NOT EXISTS ipgeo(ip TEXT PRIMARY KEY, country TEXT, region TEXT, city TEXT, at INTEGER);
   CREATE TABLE IF NOT EXISTS alerts(
