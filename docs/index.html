@@ -20,7 +20,40 @@
     --bw:2.5px;
     --shadow:0 5px 0 var(--ink);
     --shadow-sm:0 3px 0 var(--ink);
+    /* 下面几个是「跟着主题走」的，别在上面重复定义 */
+    --header-bg:rgba(255,247,234,.92);
+    --code-bg:#282833; --code-ink:#F4F1EA;
+    --shadow-soft:0 2px 6px rgba(0,0,0,.18);
+    --phone-frame:#2A2A35;
   }
+  /* 深色：只覆盖颜色令牌，布局/组件一律不动。
+     色值对齐 App 的深色主题（暖黑底 + 琥珀主色），不是简单反色。 */
+  [data-theme="dark"]{
+    --ink:#EDE7DC; --ink2:#B7B1A6; --ink3:#8A857C;
+    --paper:#221F1A; --canvas:#14120E; --canvas2:#1B1813;
+    --brand:#FFB627; --brand-deep:#FFC857; --brand-ink:#2A1E00; --brand-tint:#3A2E12;
+    --red:#FF7B7B; --red-tint:#3A1F1F;
+    --green:#4BD6A0; --green-tint:#17352A;
+    --blue:#7CBCFF; --blue-tint:#1B2A3A;
+    --purple:#B9A3FF; --purple-tint:#2A2340;
+    --line:#3A342A;
+    --shadow:0 5px 0 rgba(0,0,0,.55);
+    --shadow-sm:0 3px 0 rgba(0,0,0,.55);
+    --header-bg:rgba(20,18,14,.9);
+    --code-bg:#0E0D0A; --code-ink:#E8E2D6;
+    --shadow-soft:0 2px 6px rgba(0,0,0,.5);
+    --phone-frame:#000000;
+  }
+  /* 主题切换按钮 */
+  #theme-toggle{
+    font:inherit; font-weight:800; font-size:15px; line-height:1;
+    background:var(--paper); color:var(--ink);
+    border:var(--bw) solid var(--ink); border-radius:999px;
+    padding:7px 10px; cursor:pointer; box-shadow:0 2px 0 var(--ink);
+  }
+  #theme-toggle:hover{ transform:translate(1px,2px); box-shadow:0 1px 0 var(--ink) }
+  html{color-scheme:light}
+  [data-theme="dark"]{color-scheme:dark}
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
   body{
@@ -41,14 +74,14 @@
   /* ── 顶栏 ── */
   header{
     position:sticky; top:0; z-index:20;
-    background:rgba(255,247,234,.92); backdrop-filter:blur(8px);
+    background:var(--header-bg); backdrop-filter:blur(8px);
     border-bottom:var(--bw) solid var(--ink);
   }
   header .wrap{display:flex; align-items:center; gap:14px; height:62px}
   .logo{display:flex; align-items:center; gap:9px; font-weight:900; font-size:17px}
   .logo .mark{
     width:30px;height:30px;border-radius:9px;display:block;
-    box-shadow:0 2px 6px rgba(0,0,0,.18);
+    box-shadow:var(--shadow-soft);
   }
   nav{margin-left:auto; display:flex; gap:18px; font-size:14px; font-weight:700}
   nav a{color:var(--ink2)}
@@ -85,7 +118,7 @@
   /* ── 实机截图（真机截图，非示意图）── */
   .phone-wrap{display:flex; flex-direction:column; align-items:center; gap:10px}
   .phone{
-    width:206px; background:var(--ink); border:3px solid var(--ink); border-radius:26px;
+    width:206px; background:var(--phone-frame); border:3px solid var(--phone-frame); border-radius:26px;
     box-shadow:0 8px 0 var(--ink); padding:5px; overflow:hidden;
   }
   .phone img{display:block; width:100%; height:auto; border-radius:21px}
@@ -135,7 +168,7 @@
   ul.pts p{margin:0; font-size:12.8px; color:var(--ink2)}
 
   pre{
-    background:#282833; color:#F4F1EA; border:var(--bw) solid var(--ink); border-radius:14px;
+    background:var(--code-bg); color:var(--code-ink); border:var(--bw) solid var(--ink); border-radius:14px;
     padding:15px 17px; overflow:auto; font-size:12.8px; line-height:1.7; box-shadow:var(--shadow-sm);
   }
   pre .c{color:#9C9CAD}
@@ -151,6 +184,7 @@
 <header>
   <div class="wrap">
     <div class="logo"><img class="mark" src="icon-192.png" width="30" height="30" alt="小耄记账图标"> 小耄记账</div>
+    <button id="theme-toggle" type="button" aria-label="切换深色 / 浅色主题" title="切换深色 / 浅色">🌙</button>
     <nav>
       <a href="#features">功能</a>
       <a href="#shots">截图</a>
@@ -187,7 +221,7 @@
       <div class="phone-wrap">
         <div class="phone">
           <!-- 真机截图（Redmi K50），已缩到 540 宽 -->
-          <img src="shots/home.jpg" width="540" height="1200" alt="小耄记账首页：9 月支出 2040.80，本月预算与账单分组" loading="eager">
+          <img data-shot="home" src="shots/home-light.jpg" width="540" height="1200" alt="小耄记账首页：9 月支出 2040.80，本月预算与账单分组" loading="eager">
         </div>
         <div class="phone-cap">Redmi K50 实机截图</div>
       </div>
@@ -265,15 +299,15 @@
       </div>
       <div class="shots">
         <figure>
-          <img src="shots/home.jpg" width="540" height="1200" alt="首页：月度支出 hero、本月预算、按天分组的本月账单" loading="lazy">
+          <img data-shot="home" src="shots/home-light.jpg" width="540" height="1200" alt="首页：月度支出 hero、本月预算、按天分组的本月账单" loading="lazy">
           <figcaption><b>首页</b><br>月度支出 hero · 预算卡 · 按天分组流水</figcaption>
         </figure>
         <figure>
-          <img src="shots/calendar.jpg" width="540" height="1200" alt="日历：月历每日标注收支、月结余与日均、选中日账单" loading="lazy">
+          <img data-shot="calendar" src="shots/calendar-light.jpg" width="540" height="1200" alt="日历：月历每日标注收支、月结余与日均、选中日账单" loading="lazy">
           <figcaption><b>日历</b><br>每日收支标注 · 长按记那一天 · 选中日账单</figcaption>
         </figure>
         <figure>
-          <img src="shots/stats.jpg" width="540" height="1200" alt="统计：分类占比圆环与近 6 个月趋势柱" loading="lazy">
+          <img data-shot="stats" src="shots/stats-light.jpg" width="540" height="1200" alt="统计：分类占比圆环与近 6 个月趋势柱" loading="lazy">
           <figcaption><b>统计</b><br>分类占比圆环 · 近 6 月趋势（全部自绘）</figcaption>
         </figure>
       </div>
@@ -371,5 +405,49 @@ flutter build apk --release --target-platform android-arm,android-arm64,android-
   </div>
 </footer>
 
+
+<script>
+/* 主题：默认跟随系统，用户手动切过就记住（localStorage）。
+   截图跟着换：images/shots/<screen>-<theme>.jpg；深色图还没到位时自动回退到 -light。 */
+(function () {
+  var root = document.documentElement;
+  var KEY = 'xm-site-theme';
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  var btn = document.getElementById('theme-toggle');
+
+  function apply(theme) {
+    root.setAttribute('data-theme', theme);
+    document.querySelectorAll('img[data-shot]').forEach(function (img) {
+      var shot = img.getAttribute('data-shot');
+      img.onerror = function () {
+        if (theme !== 'light') { img.onerror = null; img.src = 'shots/' + shot + '-light.jpg'; }
+      };
+      img.src = 'shots/' + shot + '-' + theme + '.jpg';
+    });
+    if (btn) {
+      btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+      btn.setAttribute('aria-label', theme === 'dark' ? '切到浅色主题' : '切到深色主题');
+    }
+  }
+
+  var saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) {}
+  apply(saved === 'dark' || saved === 'light' ? saved : (mq.matches ? 'dark' : 'light'));
+
+  if (btn) {
+    btn.addEventListener('click', function () {
+      var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem(KEY, next); } catch (e) {}
+      apply(next);
+    });
+  }
+  var onChange = function (e) {
+    var s = null; try { s = localStorage.getItem(KEY); } catch (err) {}
+    if (!s) apply(e.matches ? 'dark' : 'light');
+  };
+  if (mq.addEventListener) mq.addEventListener('change', onChange);
+  else if (mq.addListener) mq.addListener(onChange);
+})();
+</script>
 </body>
 </html>

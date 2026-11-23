@@ -135,6 +135,11 @@ def main() -> None:
         help="本地 release APK 所在目录（用于一起打包）",
     )
     ap.add_argument("--out", default=str(OUT))
+    ap.add_argument(
+        "--no-apk",
+        action="store_true",
+        help="只出页面（APK 由 ECS/OSS 另发时用：包从 59MB 降到 ~330KB，方便传服务器）",
+    )
     args = ap.parse_args()
 
     version = args.version or read_version()
@@ -192,7 +197,11 @@ def main() -> None:
         shutil.copy2(src, dst)
         copied.append((dst.name, sha256(dst)))
 
-    if copied:
+    if args.no_apk:
+        # 下载由 ECS 的 /download/（或 OSS）提供，站点包不必再驮 115MB 的 APK
+        shutil.rmtree(dl, ignore_errors=True)
+        print("[ok] --no-apk：只出页面（下载走 --download-base 指向的地址，或同域 /download/）")
+    elif copied:
         (out / "SHA256SUMS.txt").write_text(
             "".join(f"{h}  {n}\n" for n, h in copied), encoding="utf-8"
         )
