@@ -156,18 +156,19 @@ def main() -> None:
     html = (out / "index.html").read_text(encoding="utf-8")
     if args.download_base:
         base = args.download_base.rstrip("/")
-        html = re.sub(
-            r"https://github\.com/Xander-299/xiaomao-keeping/releases/download/v[0-9.]+/"
-            r"yanxin-v[0-9.]+-arm64-v8a-release\.apk",
-            f"{base}/" + APK_PATTERN.format(version=version, abi="arm64-v8a"),
-            html,
-        )
-        # 「其他架构」指向下载目录（脚本会生成一个简单列表页）
-        html = re.sub(
-            r"https://github\.com/Xander-299/xiaomao-keeping/releases/tag/v[0-9.]+",
-            f"{base}/",
-            html,
-        )
+        arm64 = f"{base}/" + APK_PATTERN.format(version=version, abi="arm64-v8a")
+        if 'id="dl-arm64"' in html:
+            # 页面已经给按钮加了 id：按 id 换 href，不关心原来指向哪（GitHub / 旧 OSS 都行）
+            html = re.sub(r'(id="dl-arm64" href=")[^"]*(")', rf"\g<1>{arm64}\g<2>", html)
+            html = re.sub(r'(id="dl-all" href=")[^"]*(")', rf"\g<1>{base}/{version}/\g<2>", html)
+        else:
+            # 兜底：老页面没有 id，按 URL 形态替换
+            html = re.sub(
+                r"https?://[^\"']*?/yanxin-v[0-9.]+-arm64-v8a-release\.apk", arm64, html
+            )
+            html = re.sub(
+                r"https?://[^\"']*?/releases/tag/v[0-9.]+", f"{base}/{version}/", html
+            )
     (out / "index.html").write_text(html, encoding="utf-8")
 
     # 3) APK + 校验和（只有本地有构建产物时才带；没有就跳过并提示）
