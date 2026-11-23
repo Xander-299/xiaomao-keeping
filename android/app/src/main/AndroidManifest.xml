@@ -10,6 +10,9 @@
     <!-- F7.15 自动记账：回执通知（Android 13+ 运行时权限，用户主动开启时才申请）。
          通知监听不需要在这里声明权限 —— 它是 <service> 的 android:permission 属性。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- F7.22 后台常驻：前台服务需要显式权限；targetSdk 34+ 还要声明具体类型 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- P6.4b（2026-11-14）：自动同步只在 WiFi 下跑，需要读当前网络类型。
          属 normal 权限（安装即授予、不弹授权框）；它**只用来判断「是不是 WiFi」**，
          不采集任何网络信息、不上报。见 SPEC-P6.4b D6 与 HANDOFF 不变量 #8 的新口径。 -->
@@ -65,6 +68,18 @@
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
+        </service>
+        <!-- F7.22 后台常驻：低优先级前台服务，抬高进程优先级并每 10 分钟自愈一次。
+             specialUse：用途是「通知监听待命」，不属于 media/dataSync 等既有类型；
+             没有上架 Play，用 specialUse + 子类型说明即可。 -->
+        <service
+            android:name=".autobook.AutoBookKeepAliveService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="notification-listener keepalive for on-device auto bookkeeping" />
         </service>
         <!-- F7.16 补抓守护：posted 推送在国产 ROM 上实测不投递（详见 AutoBookGuard 类注释），
              故主防线改为「AlarmManager 周期主动补抓」。BOOT_COMPLETED 让开机后自动续期；

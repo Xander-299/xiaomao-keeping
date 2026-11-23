@@ -19,6 +19,7 @@ import 'package:yanxin/core/utils/money.dart';
 import 'package:yanxin/data/providers/book_providers.dart';
 import 'package:yanxin/data/providers/database.dart';
 import 'package:yanxin/features/autobook/application/auto_book_controller.dart';
+import 'package:yanxin/features/autobook/application/auto_book_keep_alive.dart';
 import 'package:yanxin/features/autobook/application/auto_book_notice.dart';
 import 'package:yanxin/features/autobook/data/auto_book_batches.dart';
 import 'package:yanxin/features/autobook/data/auto_book_bridge.dart';
@@ -46,6 +47,16 @@ final autoBookLatestBatchProvider = FutureProvider<AutoBookBatch?>((Ref ref) asy
   final String? bookId = await ref.watch(activeBookIdProvider.future);
   return ref.watch(autoBookBatchStoreProvider).latestFor(bookId);
 });
+
+/// 常驻服务当前是否在跑（页面状态行；非 Android → false）。
+final autoBookKeepAliveRunningProvider = FutureProvider<bool>(
+  (Ref ref) => ref.watch(autoBookBridgeProvider).keepAliveRunning(),
+);
+
+/// 系统是否已忽略本 App 的省电优化（false = 随时可能被回收）。
+final autoBookBatteryIgnoredProvider = FutureProvider<bool>(
+  (Ref ref) => ref.watch(autoBookBridgeProvider).batteryOptimizationIgnored(),
+);
 
 /// 原生侧活性诊断（服务是否被绑定 / 抓到过几条 / 上次 drain 情况）。
 final autoBookDiagnosticsProvider = FutureProvider<AutoBookDiagnostics?>(
@@ -104,6 +115,33 @@ class _AutoBookPageState extends ConsumerState<AutoBookPage>
     ref.invalidate(autoBookDiagnosticsProvider);
     ref.invalidate(autoBookPendingCountProvider);
     ref.invalidate(autoBookLastRunProvider);
+  }
+
+  /// 一行短提示（设置页跳转失败时用；与「检查一次」的结果条共用样式）。
+  void _toast(String msg) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
+      );
+  }
+
+  Future<void> _setKeepAlive(bool value) async {
+    await ref.read(autoBookKeepAliveProvider.notifier).setEnabled(value);
+    ref.invalidate(autoBookKeepAliveRunningProvider);
+    ref.invalidate(autoBookBatteryIgnoredProvider);
+  }
+
+  Future<void> _openBatterySettings() async {
+    final bool ok = await ref.read(autoBookBridgeProvider).openBatterySettings();
+    if (!ok && mounted) _toast('这台手机没有省电优化设置页，去「应用信息 → 省电策略」手动设为无限制。');
+  }
+
+  Future<void> _openAutoStartSettings() async {
+    final bool ok = await ref
+        .read(autoBookBridgeProvider)
+        .openAutoStartSettings();
+    if (!ok && mounted) _toast('找不到自启动设置页，去「应用信息 → 自启动」手动打开。');
   }
 
   Future<void> _openSettings() async {
@@ -206,6 +244,13 @@ class _AutoBookPageState extends ConsumerState<AutoBookPage>
     final AsyncValue<AutoBookLastRun?> lastRun = ref.watch(
       autoBookLastRunProvider,
     );
+    final AsyncValue<bool> keepAlive = ref.watch(autoBookKeepAliveProvider);
+    final AsyncValue<bool> keepAliveRunning = ref.watch(
+      autoBookKeepAliveRunningProvider,
+    );
+    final AsyncValue<bool> batteryIgnored = ref.watch(
+      autoBookBatteryIgnoredProvider,
+    );
 
     final bool listenerOn = listener.value ?? false;
 
@@ -301,6 +346,23 @@ class _AutoBookPageState extends ConsumerState<AutoBookPage>
                 batch: latest.value,
                 loading: latest.isLoading,
                 onUndo: _undoLatest,
+              ),
+            ),
+          ),
+          const ToonSectionTitle(title: '后台常驻'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: ToonCard(
+              color: p.canvas2,
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+              child: _KeepAliveBlock(
+                enabled: keepAlive.value ?? false,
+                running: keepAliveRunning.value ?? false,
+                batteryIgnored: batteryIgnored.value ?? false,
+                loading: keepAlive.isLoading,
+                onToggle: _setKeepAlive,
+                onOpenBattery: _openBatterySettings,
+                onOpenAutoStart: _openAutoStartSettings,
               ),
             ),
           ),

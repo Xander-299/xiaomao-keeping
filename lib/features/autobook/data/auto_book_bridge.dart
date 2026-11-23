@@ -105,6 +105,34 @@ class AutoBookBridge {
     await _invoke<Object?>('ensureGuard');
   }
 
+  /// 打开「后台常驻」前台服务（幂等）。
+  ///
+  /// 为什么需要：支付通知来的时候 App 可能不在后台 —— 监听服务与 UI 同进程，
+  /// 系统一回收进程，通知就进不了落盘队列，重开也补不回来（公开 SDK 没有历史通知接口）。
+  Future<void> startKeepAlive() async {
+    await _invoke<Object?>('keepAliveStart');
+  }
+
+  Future<void> stopKeepAlive() async {
+    await _invoke<Object?>('keepAliveStop');
+  }
+
+  /// 常驻服务当前是否在跑（用于页面状态行）。
+  Future<bool> keepAliveRunning() async =>
+      (await _invoke<bool>('keepAliveStatus')) ?? false;
+
+  /// 系统是否已对本 App 忽略省电优化（false = 随时可能被回收）。
+  Future<bool> batteryOptimizationIgnored() async =>
+      (await _invoke<bool>('batteryOptimizationIgnored')) ?? false;
+
+  /// 跳到系统的「省电优化」页；返回是否成功打开。
+  Future<bool> openBatterySettings() async =>
+      (await _invoke<bool>('openBatterySettings')) ?? false;
+
+  /// 跳到「自启动」设置（MIUI 专属页，其它 ROM 退应用详情页）。
+  Future<bool> openAutoStartSettings() async =>
+      (await _invoke<bool>('openAutoStartSettings')) ?? false;
+
   /// 原生侧活性快照（服务是否被绑定 / 抓到过几条 / 上次 drain 情况）。
   /// 非 Android 或通道异常 → null（页面按「不可用」展示）。
   Future<AutoBookDiagnostics?> diagnostics() async {
