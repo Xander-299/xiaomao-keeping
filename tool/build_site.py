@@ -138,7 +138,7 @@ def main() -> None:
     ap.add_argument(
         "--no-apk",
         action="store_true",
-        help="只出页面（APK 已在 OSS 时用这个：包从 59MB 降到 ~1MB，方便传 ECS）",
+        help="只出页面（APK 由 ECS/OSS 另发时用：包从 59MB 降到 ~330KB，方便传服务器）",
     )
     args = ap.parse_args()
 
@@ -198,9 +198,9 @@ def main() -> None:
         copied.append((dst.name, sha256(dst)))
 
     if args.no_apk:
-        # 页面里已经指向 OSS 直链，ECS 不需要再带一份 40MB 的包
+        # 下载由 ECS 的 /download/（或 OSS）提供，站点包不必再驮 115MB 的 APK
         shutil.rmtree(dl, ignore_errors=True)
-        print("[ok] --no-apk：只出页面（下载仍走 --download-base 指向的 OSS）")
+        print("[ok] --no-apk：只出页面（下载走 --download-base 指向的地址，或同域 /download/）")
     elif copied:
         (out / "SHA256SUMS.txt").write_text(
             "".join(f"{h}  {n}\n" for n, h in copied), encoding="utf-8"
