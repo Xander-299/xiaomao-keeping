@@ -126,6 +126,7 @@
 
   /* ── 截图画廊 ── */
   .shots{display:grid; grid-template-columns:repeat(3,1fr); gap:20px}
+  @media (min-width:761px) and (max-width:980px){ .shots{grid-template-columns:repeat(2,1fr)} }
   @media (max-width:760px){ .shots{grid-template-columns:1fr} }
   .shots figure{margin:0; display:flex; flex-direction:column; align-items:center; gap:10px}
   .shots img{
@@ -221,9 +222,9 @@
       <div class="phone-wrap">
         <div class="phone">
           <!-- 真机截图（Redmi K50），已缩到 540 宽 -->
-          <img data-shot="home" src="shots/home-light.jpg" width="540" height="1200" alt="小耄记账首页：9 月支出 2040.80，本月预算与账单分组" loading="eager">
+          <img data-shot="home" src="shots/home-light.jpg" width="540" alt="小耄记账首页：月度支出、本月预算与按天分组的账单" loading="eager">
         </div>
-        <div class="phone-cap">Redmi K50 实机截图</div>
+        <div class="phone-cap">真机截图 · 深浅两套随主题切换</div>
       </div>
     </div>
   </div>
@@ -299,16 +300,28 @@
       </div>
       <div class="shots">
         <figure>
-          <img data-shot="home" src="shots/home-light.jpg" width="540" height="1200" alt="首页：月度支出 hero、本月预算、按天分组的本月账单" loading="lazy">
+          <img data-shot="home" src="shots/home-light.jpg" width="540" alt="首页：月度支出 hero、本月预算、按天分组的本月账单" loading="lazy">
           <figcaption><b>首页</b><br>月度支出 hero · 预算卡 · 按天分组流水</figcaption>
         </figure>
         <figure>
-          <img data-shot="calendar" src="shots/calendar-light.jpg" width="540" height="1200" alt="日历：月历每日标注收支、月结余与日均、选中日账单" loading="lazy">
+          <img data-shot="calendar" src="shots/calendar-light.jpg" width="540" alt="日历：月历每日标注收支、月结余与日均、选中日账单" loading="lazy">
           <figcaption><b>日历</b><br>每日收支标注 · 长按记那一天 · 选中日账单</figcaption>
         </figure>
         <figure>
-          <img data-shot="stats" src="shots/stats-light.jpg" width="540" height="1200" alt="统计：分类占比圆环与近 6 个月趋势柱" loading="lazy">
+          <img data-shot="stats" src="shots/stats-light.jpg" width="540" alt="统计：分类占比圆环与近 6 个月趋势柱" loading="lazy">
           <figcaption><b>统计</b><br>分类占比圆环 · 近 6 月趋势（全部自绘）</figcaption>
+        </figure>
+        <figure>
+          <img data-shot="budget" src="shots/budget-light.jpg" width="540" alt="预算：总预算卡与分类预算列表，超支分类标红" loading="lazy">
+          <figcaption><b>预算</b><br>总预算 + 分类预算 · 超支标红</figcaption>
+        </figure>
+        <figure>
+          <img data-shot="autobook" src="shots/autobook-light.jpg" width="540" alt="自动记账：通知使用权状态、最近一次自动记账与诊断块" loading="lazy">
+          <figcaption><b>自动记账</b><br>读支付通知 · 可撤销 · 断点可诊断</figcaption>
+        </figure>
+        <figure>
+          <img data-shot="chat" src="shots/chat-light.jpg" width="540" alt="聊天问答：一句话问账本，回答里给出区间与实际金额" loading="lazy">
+          <figcaption><b>聊天问答</b><br>一句中文问账本 · 端上算好再回答</figcaption>
         </figure>
       </div>
     </div>
