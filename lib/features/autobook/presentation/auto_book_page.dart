@@ -115,6 +115,10 @@ class _AutoBookPageState extends ConsumerState<AutoBookPage>
     ref.invalidate(autoBookDiagnosticsProvider);
     ref.invalidate(autoBookPendingCountProvider);
     ref.invalidate(autoBookLastRunProvider);
+    // F7.22：从系统设置页回来时，「省电优化 / 常驻服务」这两行也必须重读 ——
+    // 它们只在首次 build 时查一次原生状态，漏了就会一直显示「未忽略」。
+    ref.invalidate(autoBookBatteryIgnoredProvider);
+    ref.invalidate(autoBookKeepAliveRunningProvider);
   }
 
   /// 一行短提示（设置页跳转失败时用；与「检查一次」的结果条共用样式）。

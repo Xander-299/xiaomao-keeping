@@ -120,6 +120,36 @@ void main() {
     });
   });
 
+  group('页面：从系统设置回来要重读', () {
+    testWidgets('切完省电策略回前台，「省电优化」那行要跟着变', (WidgetTester tester) async {
+      final AppDatabase db = openTestDatabase();
+      addTearDown(db.close);
+      final _FakeBridge bridge = _FakeBridge();
+      // 预置为「已开常驻」，省得先点开关
+      await AppMetaRepository(db).set(kAutoBookKeepAliveKey, '1');
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appDatabaseProvider.overrideWithValue(db),
+            autoBookBridgeProvider.overrideWithValue(bridge),
+          ],
+          child: const MaterialApp(home: AutoBookPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('未忽略'), findsOneWidget);
+
+      // 用户在系统设置里把我们设为「无限制」，然后回到 App
+      bridge.batteryIgnored = true;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('已忽略'), findsOneWidget);
+      expect(find.textContaining('未忽略'), findsNothing);
+    });
+  });
+
   group('页面', () {
     testWidgets('开关可点，打开后出现省电优化 / 自启动两行引导', (WidgetTester tester) async {
       final AppDatabase db = openTestDatabase();
