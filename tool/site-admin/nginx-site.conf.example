@@ -1,0 +1,47 @@
+# 小耄记账落地页（2026-11-23）
+# 回源：127.0.0.1:443（HTTPS，Cloudflare Origin 证书）；8080 保留为本地调试端口
+# 公网入口：Cloudflare 隧道（xiaomao2.ccwu.cc）
+server {
+    listen 127.0.0.1:8080;
+    listen 127.0.0.1:443 ssl;
+    http2 on;
+    server_name xiaomao2.ccwu.cc;
+    root /www/wwwroot/xiaomao2.ccwu.cc;
+    access_log /www/wwwlogs/xiaomao2.log xiaomao;
+    #error_page 404/404.html;
+    ssl_certificate    /www/server/panel/vhost/cert/xiaomao2.ccwu.cc/fullchain.pem;
+    ssl_certificate_key    /www/server/panel/vhost/cert/xiaomao2.ccwu.cc/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers EECDH+CHACHA20:EECDH+CHACHA20-draft:EECDH+AES128:RSA+AES128:EECDH+AES256:RSA+AES256:EECDH+3DES:RSA+3DES:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_tickets on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    add_header Strict-Transport-Security "max-age=31536000";
+    error_page 497  https://$host$request_uri;
+   # 宝塔 SSL 注入锚点，别删
+    index index.html;
+
+    # HTML 不缓存（发版即时生效），静态资源长缓存
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+    location = / {
+        add_header Cache-Control "no-cache";
+        try_files /index.html =404;
+    }
+    location /shots/ {
+        add_header Cache-Control "public, max-age=604800, immutable";
+    }
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location ^~ /download/ {
+        autoindex on;
+        autoindex_exact_size off;
+        default_type application/octet-stream;
+        add_header Cache-Control "public, max-age=604800";
+        add_header Accept-Ranges bytes;
+    }
+}
