@@ -121,6 +121,54 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+
+def jpeg_width(path: Path) -> int | None:
+    """读 JPEG 的 SOF 段取宽度（不引第三方库）。"""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    i = 2
+    while i < len(data) - 9:
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        marker = data[i + 1]
+        if marker in (0xC0, 0xC1, 0xC2, 0xC3):
+            height = int.from_bytes(data[i + 5 : i + 7], "big")
+            width = int.from_bytes(data[i + 7 : i + 9], "big")
+            return width
+        if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+            i += 2
+            continue
+        seg = int.from_bytes(data[i + 2 : i + 4], "big")
+        i += 2 + seg
+    return None
+
+
+def check_shots(shots_dir: Path) -> None:
+    """截图规格检查：540 宽主图 + 270w/WebP 伴生文件齐全。
+
+    之前混进过 1080 宽原图（页面上白下 60KB），所以构建时卡一道：
+    宽度不是 540、或缺 -270.jpg / .webp / -270.webp，直接失败。
+    """
+    if not shots_dir.is_dir():
+        return
+    problems: list[str] = []
+    mains = sorted(f for f in shots_dir.glob("*.jpg") if not f.stem.endswith("-270"))
+    for main in mains:
+        width = jpeg_width(main)
+        if width != 540:
+            problems.append(f"{main.name}: 宽度 {width}，应为 540")
+        for suffix in ("-270.jpg", ".webp", "-270.webp"):
+            companion = shots_dir / (main.stem + suffix)
+            if not companion.exists():
+                problems.append(f"缺少 {companion.name}（用 node tool/gen_shots.js 生成）")
+    if problems:
+        sys.exit("✗ 截图规格检查失败：\n  " + "\n  ".join(problems))
+    print(f"  截图规格 OK：{len(mains)} 张 × 4 规格")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", default=None, help="默认读 pubspec.yaml")
@@ -156,6 +204,7 @@ def main() -> None:
             shutil.copy2(src, out / name)
     if (DOCS / "shots").is_dir():
         shutil.copytree(DOCS / "shots", out / "shots")
+        check_shots(out / "shots")
 
     # 2) 下载链接：默认 GitHub Releases；给了 --download-base 就改成自托管
     html = (out / "index.html").read_text(encoding="utf-8")
